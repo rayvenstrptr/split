@@ -1,0 +1,41 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-canvas: #f6f7f9;
+  --color-ink: #1c2128;
+  --color-muted: #6b7280;
+  --color-accent: #0d9488; /* teal-600 */
+  --color-accent-soft: #ccfbf1; /* teal-100 */
+  --color-positive: #0d9488;
+  --color-negative: #e11d48; /* rose-600 */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular, right-aligned money figures */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hide number input spinners for a cleaner money field */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
