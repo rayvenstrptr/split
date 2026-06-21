@@ -4,6 +4,7 @@ import {
   billShares,
   netBalances,
   minimizeTransfers,
+  directSettlement,
   perPersonSummary,
 } from './settle';
 
@@ -177,5 +178,114 @@ describe('multi-bill settlement (the full R/G/H/K day)', () => {
     expect(received).toBe(170_000);
     const owed: Record<string, number> = { R: 30_000, H: 110_000, K: 30_000 };
     for (const t of transfers) expect(t.amount).toBe(owed[t.from]);
+  });
+});
+
+describe('directSettlement — real Bandung session (who paid for whom)', () => {
+  const state: AppState = {
+    people: [
+      { id: 'R', name: 'R' },
+      { id: 'G', name: 'G' },
+      { id: 'H', name: 'H' },
+      { id: 'K', name: 'K' },
+    ],
+    bills: [
+      bill({
+        name: 'BMB',
+        payerId: 'K',
+        total: 324_500,
+        entries: [
+          { personId: 'R', amount: 105_833 },
+          { personId: 'G', amount: 105_833 },
+          { personId: 'K', amount: 83_333 },
+        ],
+      }),
+      bill({
+        name: 'Swike Karang Anyar',
+        payerId: 'R',
+        total: 320_000,
+        entries: [
+          { personId: 'R', amount: 80_000 },
+          { personId: 'G', amount: 80_000 },
+          { personId: 'H', amount: 80_000 },
+          { personId: 'K', amount: 80_000 },
+        ],
+      }),
+      bill({
+        name: 'Point Coffee Pagi',
+        payerId: 'H',
+        total: 75_000,
+        entries: [
+          { personId: 'R', amount: 25_000 },
+          { personId: 'H', amount: 25_000 },
+          { personId: 'K', amount: 25_000 },
+        ],
+      }),
+      bill({
+        name: 'Bakmi Bakso Anugerah',
+        payerId: 'R',
+        total: 213_000,
+        entries: [
+          { personId: 'R', amount: 53_250 },
+          { personId: 'G', amount: 53_250 },
+          { personId: 'H', amount: 53_250 },
+          { personId: 'K', amount: 53_250 },
+        ],
+      }),
+      bill({
+        name: 'Sejiwa',
+        payerId: 'H',
+        total: 142_065,
+        entries: [
+          { personId: 'R', amount: 30_000 },
+          { personId: 'G', amount: 16_500 },
+          { personId: 'H', amount: 46_500 },
+          { personId: 'K', amount: 30_000 },
+        ],
+      }),
+      bill({
+        name: 'Dapoer Pandan Wangi',
+        payerId: 'H',
+        total: 350_900,
+        entries: [
+          { personId: 'R', amount: 81_583 },
+          { personId: 'G', amount: 81_583 },
+          { personId: 'H', amount: 70_250 },
+          { personId: 'K', amount: 85_583 },
+        ],
+      }),
+      bill({
+        name: 'Point Coffee Malem',
+        payerId: 'K',
+        total: 75_000,
+        entries: [
+          { personId: 'R', amount: 25_000 },
+          { personId: 'H', amount: 25_000 },
+          { personId: 'K', amount: 25_000 },
+        ],
+      }),
+    ],
+  };
+
+  const find = (from: string, to: string) =>
+    directSettlement(state).find((t) => t.from === from && t.to === to);
+
+  it('matches the hand-verified transfers', () => {
+    expect(find('G', 'K')?.amount).toBe(116_417);
+    expect(find('K', 'H')?.amount).toBe(128_791);
+    expect(find('R', 'K')?.amount).toBe(8_166);
+  });
+
+  it('every transfer reconciles each person to their net balance', () => {
+    const transfers = directSettlement(state);
+    for (const s of perPersonSummary(state)) {
+      const out = transfers
+        .filter((t) => t.from === s.id)
+        .reduce((a, t) => a + t.amount, 0);
+      const inc = transfers
+        .filter((t) => t.to === s.id)
+        .reduce((a, t) => a + t.amount, 0);
+      expect(inc - out).toBe(s.net);
+    }
   });
 });

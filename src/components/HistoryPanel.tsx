@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { SavedSession } from '../types';
 import { formatDateTime } from '../lib/date';
 
@@ -12,6 +12,9 @@ type Props = {
   onDelete: (id: string) => void;
   onNew: () => void;
   onLoadExample: () => void;
+  onExportAll: () => void;
+  onExportSession: (id: string) => void;
+  onImportText: (text: string) => void;
 };
 
 export default function HistoryPanel({
@@ -24,13 +27,27 @@ export default function HistoryPanel({
   onDelete,
   onNew,
   onLoadExample,
+  onExportAll,
+  onExportSession,
+  onImportText,
 }: Props) {
   const [flash, setFlash] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const save = () => {
     onSave();
     setFlash(true);
     setTimeout(() => setFlash(false), 1400);
+  };
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => onImportText(String(reader.result));
+      reader.readAsText(file);
+    }
+    e.target.value = ''; // allow re-picking the same file
   };
 
   const sorted = [...history].sort((a, b) => b.savedAt - a.savedAt);
@@ -101,6 +118,15 @@ export default function HistoryPanel({
                 </button>
                 <button
                   type="button"
+                  onClick={() => onExportSession(s.id)}
+                  aria-label={`Export ${s.name} to a file`}
+                  title="Download this session as a file"
+                  className="shrink-0 grid h-7 w-7 place-items-center rounded-lg text-muted transition-colors hover:bg-accent-soft hover:text-accent"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
                   onClick={() => onDelete(s.id)}
                   aria-label={`Delete ${s.name}`}
                   className="shrink-0 grid h-7 w-7 place-items-center rounded-lg text-muted transition-colors hover:bg-rose-50 hover:text-negative"
@@ -129,6 +155,37 @@ export default function HistoryPanel({
           Load example
         </button>
       </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onExportAll}
+          disabled={history.length === 0}
+          title="Download all saved sessions as a backup file"
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          ↓ Backup all
+        </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          title="Restore sessions from a backup file"
+          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+        >
+          ↑ Restore
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={onFile}
+        />
+      </div>
+      <p className="mt-2 text-xs text-muted">
+        Sessions are saved in this browser. Back up to a file so they survive
+        clearing browser data or switching devices.
+      </p>
     </section>
   );
 }

@@ -53,8 +53,12 @@ All calculation is pure and isolated in `src/lib/settle.ts`; components only ren
     "simplify" this to `subtotal × (1 + tax + service)`; it would be wrong. Defaults 5% / 10%.
 - **Rounding must reconcile:** per-bill shares always sum to the bill total (leftover rupiah
   goes to the largest share), and global `netBalances` always sum to **0**.
-- **Settlement** uses a greedy largest-debtor/largest-creditor match (`minimizeTransfers`) —
-  Splitwise-style "simplify debts".
+- **Settlement is `directSettlement`** — everyone repays exactly the people who fronted money
+  for them per bill, then each pair is netted into one payment. This keeps real "who paid for
+  whom" chains (a person can both pay and receive, e.g. `G → K` and `K → H`). The numbers are
+  locked by the **Bandung** regression test in `settle.test.ts` (`G→K 116417`, `K→H 128791`,
+  `R→K 8166`). `minimizeTransfers` (fewest-payments) is kept and tested but **no longer used by
+  the UI** — it collapsed those chains, which is not what the user wants.
 
 ## Sessions / history
 
@@ -62,3 +66,13 @@ All calculation is pure and isolated in `src/lib/settle.ts`; components only ren
 its own `localStorage` key (`split-bill-id/*`). Save updates the loaded session or creates a
 new one; snapshots are `structuredClone`d so saved history is independent of later edits.
 "New session" keeps the current people but clears bills.
+
+**Backup / restore** (`src/lib/backup.ts`): because `localStorage` can be wiped, sessions can be
+exported to a `.json` file and re-imported. Backup file shape:
+`{ app:'split-bill-id', kind:'sessions-backup', version, exportedAt, sessions: SavedSession[] }`.
+`parseBackup` also accepts a raw `SavedSession[]` array (the format copied straight from
+localStorage). `mergeSessions` unions by `id` (newer `savedAt` wins), so re-importing is
+idempotent. "Backup all" downloads every session; each row has a `↓` to export just that one.
+
+The working `AppState` is also wrapped in `useUndoableState` (undo/redo, header buttons +
+⌘Z/⌘⇧Z); only the present is persisted — undo history is in-memory.

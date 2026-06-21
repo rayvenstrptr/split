@@ -150,3 +150,39 @@ export function minimizeTransfers(net: Record<string, number>): Transfer[] {
   }
   return transfers;
 }
+
+/**
+ * Direct settlement: everyone repays exactly the people who fronted money for
+ * them, bill by bill, then each pair is netted into a single payment. Unlike
+ * `minimizeTransfers`, this preserves the real "who paid for whom" relationships,
+ * so a person can both pay and receive (e.g. G → K and K → H).
+ */
+export function directSettlement(state: AppState): Transfer[] {
+  // owe[debtor][creditor] = how much debtor owes creditor before netting.
+  const owe: Record<string, Record<string, number>> = {};
+  const add = (from: string, to: string, amount: number) => {
+    if (from === to || amount <= 0) return;
+    (owe[from] ??= {})[to] = (owe[from][to] ?? 0) + amount;
+  };
+
+  for (const bill of state.bills) {
+    const { perPerson } = billShares(bill);
+    for (const [personId, share] of Object.entries(perPerson)) {
+      add(personId, bill.payerId, share); // each consumer owes the payer their share
+    }
+  }
+
+  // Net each unordered pair into one directed transfer (people order = stable output).
+  const ids = state.people.map((p) => p.id);
+  const transfers: Transfer[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = ids[i];
+      const b = ids[j];
+      const diff = Math.round((owe[a]?.[b] ?? 0) - (owe[b]?.[a] ?? 0));
+      if (diff > 0) transfers.push({ from: a, to: b, amount: diff });
+      else if (diff < 0) transfers.push({ from: b, to: a, amount: -diff });
+    }
+  }
+  return transfers;
+}

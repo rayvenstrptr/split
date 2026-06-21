@@ -1,8 +1,22 @@
+import { useEffect } from 'react';
 import type { AppState, Bill, Person, SavedSession } from './types';
-import { useLocalStorage } from './hooks/useLocalStorage';
+import {
+  useLocalStorage,
+  readStored,
+  writeStored,
+} from './hooks/useLocalStorage';
+import { useUndoableState } from './hooks/useUndoableState';
 import { sampleState } from './data/sample';
 import { uid } from './lib/id';
 import { formatDate } from './lib/date';
+import {
+  buildBackup,
+  downloadJSON,
+  parseBackup,
+  mergeSessions,
+  slugify,
+  fileDate,
+} from './lib/backup';
 import HistoryPanel from './components/HistoryPanel';
 import PeoplePanel from './components/PeoplePanel';
 import BillsPanel from './components/BillsPanel';
@@ -14,13 +28,45 @@ const NAME_KEY = 'split-bill-id/session-name/v1';
 const CURRENT_ID_KEY = 'split-bill-id/session-id/v1';
 
 export default function App() {
-  const [state, setState] = useLocalStorage<AppState>(STORAGE_KEY, sampleState);
+  const { state, setState, undo, redo, canUndo, canRedo } =
+    useUndoableState<AppState>(readStored(STORAGE_KEY, sampleState), {
+      coalesceMs: 400,
+    });
   const [history, setHistory] = useLocalStorage<SavedSession[]>(HISTORY_KEY, []);
   const [sessionName, setSessionName] = useLocalStorage<string>(NAME_KEY, '');
   const [currentId, setCurrentId] = useLocalStorage<string | null>(
     CURRENT_ID_KEY,
     null,
   );
+
+  // Persist the working state (the undo stacks themselves stay in memory).
+  useEffect(() => {
+    writeStored(STORAGE_KEY, state);
+  }, [state]);
+
+  // Keyboard: Cmd/Ctrl+Z undo, Cmd/Ctrl+Shift+Z or Ctrl+Y redo.
+  // Skip while focus is in a field so native text-edit undo still works.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const el = document.activeElement;
+      const editable =
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement;
+      if (editable) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo]);
 
   /* ---- People ---- */
   const addPerson = (name: string) => {
@@ -142,13 +188,67 @@ export default function App() {
     setCurrentId(null);
   };
 
+  /* ---- Backup / restore (durable, file-based) ---- */
+  const exportAllSessions = () => {
+    if (history.length === 0) return;
+    downloadJSON(`split-bill-sessions-${fileDate()}.json`, buildBackup(history));
+  };
+
+  const exportSession = (id: string) => {
+    const session = history.find((s) => s.id === id);
+    if (!session) return;
+    downloadJSON(
+      `split-bill-${slugify(session.name)}-${fileDate(session.savedAt)}.json`,
+      buildBackup([session]),
+    );
+  };
+
+  const importSessionsText = (text: string) => {
+    try {
+      const incoming = parseBackup(text);
+      const { merged, added, updated } = mergeSessions(history, incoming);
+      setHistory(merged);
+      alert(
+        `Restored ${incoming.length} session(s): ${added} new, ${updated} updated.`,
+      );
+    } catch (err) {
+      alert(
+        `Could not read that backup file.\n${
+          err instanceof Error ? err.message : ''
+        }`,
+      );
+    }
+  };
+
   return (
     <div className="mx-auto min-h-full max-w-2xl px-4 pb-16 pt-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Split Bill</h1>
-        <p className="text-sm text-muted">
-          A day out in Indonesia · all amounts in Rupiah
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Split Bill</h1>
+          <p className="text-sm text-muted">
+            A day out in Indonesia · all amounts in Rupiah
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (⌘Z)"
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            ↶ Undo
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (⌘⇧Z)"
+            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            ↷ Redo
+          </button>
+        </div>
       </header>
 
       <div className="space-y-6">
@@ -162,6 +262,9 @@ export default function App() {
           onDelete={deleteSession}
           onNew={newSession}
           onLoadExample={loadExample}
+          onExportAll={exportAllSessions}
+          onExportSession={exportSession}
+          onImportText={importSessionsText}
         />
         <PeoplePanel
           people={state.people}
