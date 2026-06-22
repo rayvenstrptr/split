@@ -8,7 +8,23 @@ export type BillEntry = {
   amount: number; // integer rupiah — this person's own order subtotal
 };
 
+/** A shared line item (item-based bill): price splits equally among its owners. */
+export type BillItem = {
+  id: string;
+  name: string; // "Movie tickets", "Fries"
+  price: number; // integer rupiah — the line-item price (pre-surcharge)
+  ownerIds: string[]; // people who share this item equally
+};
+
 export type SurchargeMode = 'fromTotal' | 'fromPercent';
+
+/**
+ * How a bill's per-person subtotals are derived.
+ * - `byPerson` (default): each person enters their own order amount.
+ * - `byItem`: line items are assigned to owners and split equally.
+ * Orthogonal to `SurchargeMode` — either split mode still supports both surcharge modes.
+ */
+export type BillSplitMode = 'byPerson' | 'byItem';
 
 export type Bill = {
   id: string;
@@ -19,6 +35,8 @@ export type Bill = {
   total?: number; // mode 'fromTotal': actual amount paid
   servicePercent?: number; // mode 'fromPercent': applied to subtotal first
   taxPercent?: number; // mode 'fromPercent': applied to (subtotal + service)
+  splitMode?: BillSplitMode; // undefined === 'byPerson' (back-compat)
+  items?: BillItem[]; // splitMode 'byItem': shared line items
 };
 
 export type AppState = {

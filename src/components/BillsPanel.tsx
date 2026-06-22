@@ -1,5 +1,6 @@
 import type { Bill, Person } from '../types';
 import BillCard from './BillCard';
+import ReorderableList from './ReorderableList';
 
 type Props = {
   bills: Bill[];
@@ -7,6 +8,7 @@ type Props = {
   onAdd: () => void;
   onUpdate: (bill: Bill) => void;
   onRemove: (id: string) => void;
+  onReorder: (from: number, to: number) => void;
 };
 
 export default function BillsPanel({
@@ -15,6 +17,7 @@ export default function BillsPanel({
   onAdd,
   onUpdate,
   onRemove,
+  onReorder,
 }: Props) {
   return (
     <section>
@@ -24,15 +27,21 @@ export default function BillsPanel({
       </div>
 
       <div className="space-y-3">
-        {bills.map((bill) => (
-          <BillCard
-            key={bill.id}
-            bill={bill}
-            people={people}
-            onChange={onUpdate}
-            onRemove={() => onRemove(bill.id)}
-          />
-        ))}
+        <ReorderableList
+          items={bills}
+          getKey={(b) => b.id}
+          onReorder={onReorder}
+          itemClassName="rounded-2xl"
+          renderItem={(bill, _i, handle) => (
+            <BillCard
+              bill={bill}
+              people={people}
+              onChange={onUpdate}
+              onRemove={() => onRemove(bill.id)}
+              orderControls={handle}
+            />
+          )}
+        />
       </div>
 
       <button

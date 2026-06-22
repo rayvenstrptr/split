@@ -6,7 +6,9 @@ import {
   minimizeTransfers,
   directSettlement,
   perPersonSummary,
+  resolveEntries,
 } from './settle';
+import type { BillEntry } from '../types';
 
 const bill = (b: Partial<Bill> & Pick<Bill, 'payerId' | 'entries'>): Bill => ({
   id: Math.random().toString(36).slice(2),
@@ -287,5 +289,138 @@ describe('directSettlement — real Bandung session (who paid for whom)', () => 
         .reduce((a, t) => a + t.amount, 0);
       expect(inc - out).toBe(s.net);
     }
+  });
+});
+
+const toMap = (entries: BillEntry[]): Record<string, number> =>
+  Object.fromEntries(entries.map((e) => [e.personId, e.amount]));
+
+describe('resolveEntries — item splitting', () => {
+  it('splits a shared item equally among its owners', () => {
+    const entries = resolveEntries(
+      bill({
+        payerId: 'R',
+        entries: [],
+        splitMode: 'byItem',
+        items: [
+          { id: 'i1', name: 'Fries', price: 100_000, ownerIds: ['R', 'G', 'H', 'K'] },
+        ],
+      }),
+    );
+    expect(toMap(entries)).toEqual({ R: 25_000, G: 25_000, H: 25_000, K: 25_000 });
+    expect(entries.reduce((s, e) => s + e.amount, 0)).toBe(100_000);
+  });
+
+  it('reconciles an uneven split: leftover rupiah land on the first owners', () => {
+    const entries = resolveEntries(
+      bill({
+        payerId: 'A',
+        entries: [],
+        splitMode: 'byItem',
+        items: [
+          { id: 'i1', name: 'Pitcher', price: 100_000, ownerIds: ['A', 'B', 'C'] },
+        ],
+      }),
+    );
+    expect(toMap(entries)).toEqual({ A: 33_334, B: 33_333, C: 33_333 });
+    expect(entries.reduce((s, e) => s + e.amount, 0)).toBe(100_000);
+  });
+
+  it('treats a single-owner item as that person ordering it alone', () => {
+    const entries = resolveEntries(
+      bill({
+        payerId: 'R',
+        entries: [],
+        splitMode: 'byItem',
+        items: [{ id: 'i1', name: 'Steak', price: 50_000, ownerIds: ['G'] }],
+      }),
+    );
+    expect(toMap(entries)).toEqual({ G: 50_000 });
+  });
+
+  it('accumulates a person across multiple overlapping items', () => {
+    const entries = resolveEntries(
+      bill({
+        payerId: 'R',
+        entries: [],
+        splitMode: 'byItem',
+        items: [
+          { id: 'i1', name: 'Tickets', price: 120_000, ownerIds: ['R', 'G'] },
+          { id: 'i2', name: 'Fries', price: 80_000, ownerIds: ['R', 'G', 'H', 'K'] },
+        ],
+      }),
+    );
+    expect(toMap(entries)).toEqual({ R: 80_000, G: 80_000, H: 20_000, K: 20_000 });
+    expect(entries.reduce((s, e) => s + e.amount, 0)).toBe(200_000);
+  });
+
+  it('ignores owner-less and zero-price items', () => {
+    const entries = resolveEntries(
+      bill({
+        payerId: 'R',
+        entries: [],
+        splitMode: 'byItem',
+        items: [
+          { id: 'i1', name: 'Unassigned', price: 50_000, ownerIds: [] },
+          { id: 'i2', name: 'Free water', price: 0, ownerIds: ['R'] },
+        ],
+      }),
+    );
+    expect(entries).toEqual([]);
+  });
+
+  it('returns the verbatim entries for person-based bills (back-compat)', () => {
+    const b = bill({
+      payerId: 'R',
+      entries: [
+        { personId: 'R', amount: 50_000 },
+        { personId: 'G', amount: 70_000 },
+      ],
+    });
+    expect(resolveEntries(b)).toBe(b.entries);
+  });
+});
+
+describe('billShares — item-based bills carry surcharge proportionally', () => {
+  it('fromPercent: item subtotals feed the Indonesian compounding order', () => {
+    const r = billShares(
+      bill({
+        payerId: 'R',
+        mode: 'fromPercent',
+        servicePercent: 5,
+        taxPercent: 10,
+        entries: [],
+        splitMode: 'byItem',
+        items: [
+          { id: 'i1', name: 'Pitcher', price: 300_000, ownerIds: ['R', 'G', 'H'] },
+          { id: 'i2', name: 'Tickets', price: 200_000, ownerIds: ['R', 'G'] },
+        ],
+      }),
+    );
+    expect(r.subtotal).toBe(500_000);
+    expect(r.service).toBe(25_000); // 5% of 500k
+    expect(r.tax).toBe(52_500); // 10% of 525k
+    expect(r.total).toBe(577_500);
+    expect(r.perPerson).toEqual({ R: 231_000, G: 231_000, H: 115_500 });
+    const sum = Object.values(r.perPerson).reduce((s, v) => s + v, 0);
+    expect(sum).toBe(r.total);
+  });
+
+  it('fromTotal: shares always reconcile to the awkward total', () => {
+    const r = billShares(
+      bill({
+        payerId: 'A',
+        total: 200_001,
+        entries: [],
+        splitMode: 'byItem',
+        items: [
+          { id: 'i1', name: 'Whole fish', price: 100_000, ownerIds: ['A', 'B', 'C'] },
+        ],
+      }),
+    );
+    expect(r.subtotal).toBe(100_000);
+    const sum = Object.values(r.perPerson).reduce((s, v) => s + v, 0);
+    expect(sum).toBe(r.total);
+    expect(r.total).toBe(200_001);
   });
 });

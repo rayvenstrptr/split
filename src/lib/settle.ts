@@ -1,4 +1,4 @@
-import type { AppState, Bill } from '../types';
+import type { AppState, Bill, BillEntry } from '../types';
 
 export type BillResult = {
   /** Final amount each participant owes for this bill (integer rupiah). */
@@ -12,6 +12,41 @@ export type BillResult = {
 };
 
 /**
+ * Split one item's price equally among its owners (integer rupiah). The shares
+ * always sum back to `price`: the leftover rupiah land on the first N owners
+ * (deterministic by owner order). A zero-price or owner-less item is parked —
+ * it contributes nothing to anyone.
+ */
+function splitItemEqually(price: number, ownerIds: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  const n = ownerIds.length;
+  if (n === 0 || price <= 0) return out;
+  const base = Math.floor(price / n);
+  const remainder = price - base * n; // 0 .. n-1 leftover rupiah
+  for (let i = 0; i < n; i++) {
+    out[ownerIds[i]] = (out[ownerIds[i]] ?? 0) + base + (i < remainder ? 1 : 0);
+  }
+  return out;
+}
+
+/**
+ * Resolve a bill to the per-person order amounts the surcharge engine consumes.
+ * `byPerson` (the default) returns the entries verbatim. `byItem` splits each
+ * line item equally among its owners and accumulates per person — because every
+ * item reconciles to its price, the resolved subtotal equals the sum of item
+ * prices, and the existing proportional-surcharge math then applies unchanged.
+ */
+export function resolveEntries(bill: Bill): BillEntry[] {
+  if (bill.splitMode !== 'byItem') return bill.entries;
+  const acc: Record<string, number> = {};
+  for (const item of bill.items ?? []) {
+    const shares = splitItemEqually(Math.max(0, Math.round(item.price)), item.ownerIds);
+    for (const [pid, amt] of Object.entries(shares)) acc[pid] = (acc[pid] ?? 0) + amt;
+  }
+  return Object.entries(acc).map(([personId, amount]) => ({ personId, amount }));
+}
+
+/**
  * Compute what each person owes for a single bill.
  *
  * Tax & service are spread proportionally over each person's order amount, so
@@ -22,7 +57,7 @@ export type BillResult = {
  *   first, then tax is applied on top of (subtotal + service).
  */
 export function billShares(bill: Bill): BillResult {
-  const entries = bill.entries;
+  const entries = resolveEntries(bill);
   const subtotal = entries.reduce((s, e) => s + Math.max(0, e.amount), 0);
 
   let service = 0;

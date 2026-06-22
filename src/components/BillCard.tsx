@@ -1,23 +1,64 @@
+import type { ReactNode } from 'react';
 import type { Bill, BillEntry, Person } from '../types';
 import { billShares } from '../lib/settle';
 import { formatIDR } from '../lib/money';
 import MoneyInput from './MoneyInput';
+import BillItemsEditor from './BillItemsEditor';
 
 type Props = {
   bill: Bill;
   people: Person[];
   onChange: (bill: Bill) => void;
   onRemove: () => void;
+  orderControls?: ReactNode;
 };
 
-export default function BillCard({ bill, people, onChange, onRemove }: Props) {
+/** Whether the user has entered anything worth confirming before a delete. */
+function billHasData(bill: Bill): boolean {
+  return (
+    bill.entries.some((e) => e.amount > 0) ||
+    (bill.items?.some(
+      (it) => it.price > 0 || it.name.trim() !== '' || it.ownerIds.length > 0,
+    ) ??
+      false) ||
+    (bill.total ?? 0) > 0
+  );
+}
+
+export default function BillCard({
+  bill,
+  people,
+  onChange,
+  onRemove,
+  orderControls,
+}: Props) {
   const result = billShares(bill);
+  const isItem = bill.splitMode === 'byItem';
+
+  const requestRemove = () => {
+    if (billHasData(bill) && !confirm(`Delete “${bill.name || 'this bill'}”?`)) return;
+    onRemove();
+  };
 
   const isOrdering = (id: string) => bill.entries.some((e) => e.personId === id);
   const amountOf = (id: string) =>
     bill.entries.find((e) => e.personId === id)?.amount ?? 0;
 
   const patch = (p: Partial<Bill>) => onChange({ ...bill, ...p });
+
+  const setSplitMode = (splitMode: 'byPerson' | 'byItem') => {
+    if (splitMode === 'byItem') {
+      patch({ splitMode, items: bill.items ?? [] });
+    } else {
+      // Seed the person editor if this bill was created/lived only in item mode.
+      patch({
+        splitMode,
+        entries: bill.entries.length
+          ? bill.entries
+          : people.map((p): BillEntry => ({ personId: p.id, amount: 0 })),
+      });
+    }
+  };
 
   const toggleOrder = (id: string) => {
     if (isOrdering(id)) {
@@ -48,8 +89,9 @@ export default function BillCard({ bill, people, onChange, onRemove }: Props) {
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      {/* Header: name + payer + remove */}
+      {/* Header: order controls + name + remove */}
       <div className="flex items-center gap-2">
+        {orderControls}
         <input
           value={bill.name}
           onChange={(e) => patch({ name: e.target.value })}
@@ -58,7 +100,7 @@ export default function BillCard({ bill, people, onChange, onRemove }: Props) {
         />
         <button
           type="button"
-          onClick={onRemove}
+          onClick={requestRemove}
           aria-label="Remove bill"
           className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-rose-50 hover:text-negative"
         >
@@ -66,66 +108,101 @@ export default function BillCard({ bill, people, onChange, onRemove }: Props) {
         </button>
       </div>
 
-      <label className="mt-2 flex items-center gap-2 text-sm">
-        <span className="text-muted">Paid by</span>
-        <select
-          value={bill.payerId}
-          onChange={(e) => patch({ payerId: e.target.value })}
-          className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm font-medium outline-none focus:border-accent"
-        >
-          {people.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* Paid by + split-mode toggle */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted">Paid by</span>
+          <select
+            value={bill.payerId}
+            onChange={(e) => patch({ payerId: e.target.value })}
+            className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm font-medium outline-none focus:border-accent"
+          >
+            {people.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      {/* Participants */}
-      <div className="mt-3 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">
-          Who ordered
-        </span>
-        <button
-          type="button"
-          onClick={splitEqually}
-          className="text-xs font-medium text-accent hover:underline"
-        >
-          Split equally
-        </button>
+        <div className="inline-flex shrink-0 rounded-lg border border-gray-300 bg-white p-0.5 text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => setSplitMode('byPerson')}
+            className={`rounded-md px-2.5 py-1 transition-colors ${
+              !isItem ? 'bg-accent text-white' : 'text-muted'
+            }`}
+          >
+            By person
+          </button>
+          <button
+            type="button"
+            onClick={() => setSplitMode('byItem')}
+            className={`rounded-md px-2.5 py-1 transition-colors ${
+              isItem ? 'bg-accent text-white' : 'text-muted'
+            }`}
+          >
+            By item
+          </button>
+        </div>
       </div>
 
-      <div className="mt-2 divide-y divide-gray-100">
-        {people.map((p) => {
-          const ordering = isOrdering(p.id);
-          return (
-            <div key={p.id} className="flex items-center gap-3 py-2">
-              <label className="flex w-28 shrink-0 items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={ordering}
-                  onChange={() => toggleOrder(p.id)}
-                  className="h-4 w-4 accent-[color:var(--color-accent)]"
-                />
-                <span className={ordering ? 'font-medium' : 'text-muted'}>
-                  {p.name}
-                </span>
-              </label>
-              <div className="flex-1">
-                <MoneyInput
-                  value={amountOf(p.id)}
-                  onChange={(v) => setAmount(p.id, v)}
-                  disabled={!ordering}
-                  ariaLabel={`${p.name} order amount`}
-                />
-              </div>
-              <span className="tnum w-28 shrink-0 text-right text-sm text-muted">
-                {ordering ? formatIDR(result.perPerson[p.id] ?? 0) : '—'}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      {isItem ? (
+        <BillItemsEditor
+          bill={bill}
+          people={people}
+          result={result}
+          onChange={onChange}
+        />
+      ) : (
+        <>
+          {/* Participants */}
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
+              Who ordered
+            </span>
+            <button
+              type="button"
+              onClick={splitEqually}
+              className="text-xs font-medium text-accent hover:underline"
+            >
+              Split equally
+            </button>
+          </div>
+
+          <div className="mt-2 divide-y divide-gray-100">
+            {people.map((p) => {
+              const ordering = isOrdering(p.id);
+              return (
+                <div key={p.id} className="flex items-center gap-3 py-2">
+                  <label className="flex w-28 shrink-0 items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={ordering}
+                      onChange={() => toggleOrder(p.id)}
+                      className="h-4 w-4 accent-[color:var(--color-accent)]"
+                    />
+                    <span className={ordering ? 'font-medium' : 'text-muted'}>
+                      {p.name}
+                    </span>
+                  </label>
+                  <div className="flex-1">
+                    <MoneyInput
+                      value={amountOf(p.id)}
+                      onChange={(v) => setAmount(p.id, v)}
+                      disabled={!ordering}
+                      ariaLabel={`${p.name} order amount`}
+                    />
+                  </div>
+                  <span className="tnum w-28 shrink-0 text-right text-sm text-muted">
+                    {ordering ? formatIDR(result.perPerson[p.id] ?? 0) : '—'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Surcharge controls */}
       <div className="mt-4 rounded-xl bg-gray-50 p-3">

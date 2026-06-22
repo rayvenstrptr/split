@@ -9,6 +9,7 @@ import { useUndoableState } from './hooks/useUndoableState';
 import { sampleState } from './data/sample';
 import { uid } from './lib/id';
 import { formatDate } from './lib/date';
+import { moveItem } from './lib/reorder';
 import {
   buildBackup,
   downloadJSON,
@@ -76,7 +77,10 @@ export default function App() {
 
   const removePerson = (id: string) => {
     const used = state.bills.some(
-      (b) => b.payerId === id || b.entries.some((e) => e.personId === id),
+      (b) =>
+        b.payerId === id ||
+        b.entries.some((e) => e.personId === id) ||
+        b.items?.some((it) => it.ownerIds.includes(id)),
     );
     if (
       used &&
@@ -93,6 +97,10 @@ export default function App() {
         ...b,
         payerId: b.payerId === id ? fallback : b.payerId,
         entries: b.entries.filter((e) => e.personId !== id),
+        items: b.items?.map((it) => ({
+          ...it,
+          ownerIds: it.ownerIds.filter((o) => o !== id),
+        })),
       }));
       return { people, bills };
     });
@@ -120,6 +128,10 @@ export default function App() {
 
   const removeBill = (id: string) => {
     setState((s) => ({ ...s, bills: s.bills.filter((b) => b.id !== id) }));
+  };
+
+  const reorderBills = (from: number, to: number) => {
+    setState((s) => ({ ...s, bills: moveItem(s.bills, from, to) }));
   };
 
   /* ---- Sessions / history ---- */
@@ -277,6 +289,7 @@ export default function App() {
           onAdd={addBill}
           onUpdate={updateBill}
           onRemove={removeBill}
+          onReorder={reorderBills}
         />
         <SettlementPanel state={state} />
       </div>

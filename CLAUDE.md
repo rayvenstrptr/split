@@ -30,20 +30,30 @@ references / no `tsconfig.node.json`) — keep it that way to avoid `composite` 
 
 All calculation is pure and isolated in `src/lib/settle.ts`; components only render it.
 
-- `src/types.ts` — `Person`, `BillEntry`, `Bill`, `AppState`, `SavedSession`.
-- `src/lib/settle.ts` — the core. `billShares` (per-bill split), `perPersonSummary`,
-  `netBalances`, `minimizeTransfers`. **Covered by `settle.test.ts` — update tests with the logic.**
+- `src/types.ts` — `Person`, `BillEntry`, `BillItem`, `Bill`, `AppState`, `SavedSession`.
+- `src/lib/settle.ts` — the core. `resolveEntries` (per-person amounts a bill feeds the engine),
+  `billShares` (per-bill split), `perPersonSummary`, `netBalances`, `minimizeTransfers`.
+  **Covered by `settle.test.ts` — update tests with the logic.**
 - `src/lib/money.ts` — `formatIDR`, `groupDigits`, `parseIDR`. All amounts are **integer rupiah**.
 - `src/lib/date.ts`, `src/lib/id.ts` — formatting + `uid()` helpers.
 - `src/data/sample.ts` — the preloaded R/G/H/K example from the original brief.
 - `src/hooks/useLocalStorage.ts` — persisted state.
 - `src/App.tsx` — owns all state + handlers (people, bills, sessions); passes down to panels.
-- `src/components/` — `HistoryPanel`, `PeoplePanel`, `BillsPanel` → `BillCard`,
+- `src/components/` — `HistoryPanel`, `PeoplePanel`, `BillsPanel` → `BillCard` → `BillItemsEditor`,
   `SettlementPanel`, `MoneyInput`. Components are presentational; mutations flow up via callbacks.
 
 ## Domain rules (don't regress these)
 
 - **Money is integer rupiah.** No cents. Parse/format only through `src/lib/money.ts`.
+- **Two split modes per bill** (`bill.splitMode`, orthogonal to the surcharge `mode` below):
+  - `byPerson` (default; `undefined` for old saved bills) — each person enters their own order
+    `amount` in `bill.entries`.
+  - `byItem` — `bill.items` are shared line items, each split **equally** among its `ownerIds`
+    (a 1-owner item = an individual order; a 0-owner or 0-price item is parked, owed by no one).
+  `resolveEntries(bill)` collapses either mode into the `BillEntry[]` the surcharge engine
+  consumes, so `billShares` and everything downstream is split-mode-agnostic. Each item
+  reconciles to its own price (leftover rupiah land on the first owners), so the resolved
+  subtotal equals the sum of item prices.
 - **Tax & service are spread proportionally** to each person's order amount (someone who
   "ordered a lot" carries more surcharge). Two modes per bill:
   - `fromTotal` — you know the amount actually paid; surcharge = `total − subtotal`.
