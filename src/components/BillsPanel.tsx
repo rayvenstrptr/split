@@ -1,6 +1,7 @@
 import type { Bill, Person } from '../types';
 import BillCard from './BillCard';
 import ReorderableList from './ReorderableList';
+import { SectionHead } from './ui';
 
 type Props = {
   bills: Bill[];
@@ -21,17 +22,14 @@ export default function BillsPanel({
 }: Props) {
   return (
     <section>
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-base font-semibold">Bills</h2>
-        <span className="text-xs text-muted">{bills.length} stops</span>
-      </div>
+      <SectionHead title="Bills" right={`${bills.length} stops`} />
 
       <div className="space-y-3">
         <ReorderableList
           items={bills}
           getKey={(b) => b.id}
           onReorder={onReorder}
-          itemClassName="rounded-2xl"
+          itemClassName="rounded-card"
           renderItem={(bill, _i, handle) => (
             <BillCard
               bill={bill}
@@ -48,9 +46,9 @@ export default function BillsPanel({
         type="button"
         onClick={onAdd}
         disabled={people.length === 0}
-        className="mt-3 w-full rounded-2xl border-2 border-dashed border-gray-300 py-3 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-3 w-full rounded-card border-[1.5px] border-dashed border-line-strong py-3.5 text-sm font-bold text-muted transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
-        + Add a bill
+        + Add a stop
       </button>
     </section>
   );

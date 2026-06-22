@@ -48,16 +48,16 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
 
   return (
     <div>
-      <div className="mt-3 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-faint">
           Items
         </span>
-        <span className="text-xs text-muted">{items.length}</span>
+        <span className="text-xs text-faint">{items.length}</span>
       </div>
 
-      <div className="mt-2 space-y-2">
+      <div className="flex flex-col gap-2">
         {items.length === 0 && (
-          <p className="py-2 text-sm text-muted">
+          <p className="py-1.5 text-[13px] text-muted">
             No items yet. Add what was ordered and tap who shared each one.
           </p>
         )}
@@ -65,7 +65,7 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
           items={items}
           getKey={(it) => it.id}
           onReorder={(from, to) => updateItems(moveItem(items, from, to))}
-          itemClassName="rounded-xl border border-gray-200 p-2.5"
+          itemClassName="rounded-well border border-line bg-surface p-2.5"
           renderItem={(it, _i, handle) => {
             const perOwner =
               it.ownerIds.length > 0 ? Math.round(it.price / it.ownerIds.length) : 0;
@@ -77,9 +77,9 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
                     value={it.name}
                     onChange={(e) => patchItem(it.id, { name: e.target.value })}
                     placeholder="Item name"
-                    className="min-w-0 flex-1 rounded-lg border border-transparent px-1 py-1 text-sm font-medium outline-none hover:border-gray-200 focus:border-accent"
+                    className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm font-semibold text-ink outline-none"
                   />
-                  <div className="w-32 shrink-0">
+                  <div className="w-[120px] shrink-0">
                     <MoneyInput
                       value={it.price}
                       onChange={(v) => patchItem(it.id, { price: v })}
@@ -90,7 +90,7 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
                     type="button"
                     onClick={() => removeItem(it.id)}
                     aria-label="Remove item"
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-rose-50 hover:text-negative"
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-field text-faint transition-colors hover:bg-negative-soft hover:text-negative"
                   >
                     ✕
                   </button>
@@ -105,7 +105,7 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
                         type="button"
                         onClick={() => toggleOwner(it.id, p.id)}
                         aria-pressed={owns}
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                        className={`rounded-full px-2.5 py-[5px] text-xs font-bold transition-colors ${
                           owns
                             ? 'bg-accent text-white'
                             : 'bg-accent-soft text-accent hover:opacity-80'
@@ -115,7 +115,7 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
                       </button>
                     );
                   })}
-                  <span className="tnum ml-auto pl-2 text-xs text-muted">
+                  <span className="tnum ml-auto whitespace-nowrap pl-2 text-xs text-muted">
                     {it.ownerIds.length > 0
                       ? `${formatIDR(perOwner)} each`
                       : it.price > 0
@@ -132,7 +132,7 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
       <button
         type="button"
         onClick={addItem}
-        className="mt-2 w-full rounded-xl border-2 border-dashed border-gray-300 py-2 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+        className="mt-2 w-full rounded-well border-[1.5px] border-dashed border-line-strong py-2.5 text-[13px] font-bold text-muted transition-colors hover:border-accent hover:text-accent"
       >
         + Add item
       </button>
@@ -140,25 +140,31 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
       {unassigned > 0 && (
         <p className="mt-2 text-xs text-negative">
           {unassigned} item{unassigned > 1 ? 's' : ''} with a price but no owner — assign
-          someone, or they won't be split.
+          someone, or they won&apos;t be split.
         </p>
       )}
 
       {/* Per-person "spent this bill" */}
       <div className="mt-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">
+        <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-faint">
           Spent this bill
         </span>
-        <div className="mt-1 divide-y divide-gray-100">
-          {people.map((p) => {
+        <div className="mt-1">
+          {people.map((p, i) => {
             const amt = result.perPerson[p.id] ?? 0;
             return (
               <div
                 key={p.id}
-                className="flex items-center justify-between py-1.5 text-sm"
+                className={`flex items-center justify-between py-1.5 text-[13px] ${
+                  i === 0 ? '' : 'border-t border-line'
+                }`}
               >
-                <span className={amt > 0 ? 'font-medium' : 'text-muted'}>{p.name}</span>
-                <span className="tnum text-muted">{amt > 0 ? formatIDR(amt) : '—'}</span>
+                <span className={amt > 0 ? 'font-semibold' : 'text-muted'}>
+                  {p.name}
+                </span>
+                <span className="tnum whitespace-nowrap text-muted">
+                  {amt > 0 ? formatIDR(amt) : '—'}
+                </span>
               </div>
             );
           })}

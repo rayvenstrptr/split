@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Bill, BillEntry, Person } from '../types';
 import { billShares } from '../lib/settle';
 import { formatIDR } from '../lib/money';
+import { personIndex } from '../lib/colors';
+import { Avatar, Button, Segmented } from './ui';
 import MoneyInput from './MoneyInput';
 import BillItemsEditor from './BillItemsEditor';
 
@@ -32,11 +34,17 @@ export default function BillCard({
   onRemove,
   orderControls,
 }: Props) {
+  const [open, setOpen] = useState(true);
   const result = billShares(bill);
   const isItem = bill.splitMode === 'byItem';
+  const payer = people.find((p) => p.id === bill.payerId);
 
   const requestRemove = () => {
-    if (billHasData(bill) && !confirm(`Delete “${bill.name || 'this bill'}”?`)) return;
+    if (
+      billHasData(bill) &&
+      !confirm(`Delete “${bill.name || 'this stop'}”? Its amounts will be lost.`)
+    )
+      return;
     onRemove();
   };
 
@@ -50,7 +58,6 @@ export default function BillCard({
     if (splitMode === 'byItem') {
       patch({ splitMode, items: bill.items ?? [] });
     } else {
-      // Seed the person editor if this bill was created/lived only in item mode.
       patch({
         splitMode,
         entries: bill.entries.length
@@ -69,10 +76,11 @@ export default function BillCard({
   };
 
   const setAmount = (id: string, amount: number) => {
-    const entries = bill.entries.map((e) =>
-      e.personId === id ? { ...e, amount } : e,
-    );
-    patch({ entries });
+    patch({
+      entries: bill.entries.map((e) =>
+        e.personId === id ? { ...e, amount } : e,
+      ),
+    });
   };
 
   const splitEqually = () => {
@@ -84,226 +92,250 @@ export default function BillCard({
         : result.subtotal;
     if (base <= 0) return;
     const each = Math.round(base / n);
-    patch({ entries: bill.entries.map((e): BillEntry => ({ ...e, amount: each })) });
+    patch({
+      entries: bill.entries.map((e): BillEntry => ({ ...e, amount: each })),
+    });
   };
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      {/* Header: order controls + name + remove */}
-      <div className="flex items-center gap-2">
+    <div className="overflow-hidden rounded-card border border-line bg-surface shadow-soft">
+      {/* Header */}
+      <div className="flex items-center gap-2.5 px-4 py-3.5">
         {orderControls}
-        <input
-          value={bill.name}
-          onChange={(e) => patch({ name: e.target.value })}
-          placeholder="Bill name"
-          className="min-w-0 flex-1 rounded-lg border border-transparent px-1 py-1 text-base font-semibold outline-none hover:border-gray-200 focus:border-accent"
+        <Avatar
+          name={payer?.name ?? '?'}
+          index={personIndex(people, bill.payerId)}
+          size={40}
         />
+        <div className="min-w-0 flex-1">
+          <input
+            value={bill.name}
+            onChange={(e) => patch({ name: e.target.value })}
+            placeholder="Bill name"
+            className="w-full border-0 bg-transparent p-0 text-base font-bold text-ink outline-none"
+          />
+          <div className="mt-px flex items-center gap-1 text-[12.5px] text-muted">
+            paid by
+            <select
+              value={bill.payerId}
+              onChange={(e) => patch({ payerId: e.target.value })}
+              className="cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-bold text-accent outline-none"
+            >
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="tnum whitespace-nowrap text-base font-extrabold">
+            {formatIDR(result.total)}
+          </div>
+          <div className="whitespace-nowrap text-[11.5px] text-faint">
+            {isItem
+              ? `${(bill.items ?? []).length} items`
+              : `${bill.entries.length} ordering`}
+          </div>
+        </div>
         <button
           type="button"
-          onClick={requestRemove}
-          aria-label="Remove bill"
-          className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-rose-50 hover:text-negative"
+          onClick={() => setOpen(!open)}
+          aria-label={open ? 'Collapse' : 'Expand'}
+          aria-expanded={open}
+          className="p-1.5 text-faint transition-transform"
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }}
         >
-          ✕
+          ▾
         </button>
       </div>
 
-      {/* Paid by + split-mode toggle */}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted">Paid by</span>
-          <select
-            value={bill.payerId}
-            onChange={(e) => patch({ payerId: e.target.value })}
-            className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm font-medium outline-none focus:border-accent"
-          >
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="inline-flex shrink-0 rounded-lg border border-gray-300 bg-white p-0.5 text-xs font-medium">
-          <button
-            type="button"
-            onClick={() => setSplitMode('byPerson')}
-            className={`rounded-md px-2.5 py-1 transition-colors ${
-              !isItem ? 'bg-accent text-white' : 'text-muted'
-            }`}
-          >
-            By person
-          </button>
-          <button
-            type="button"
-            onClick={() => setSplitMode('byItem')}
-            className={`rounded-md px-2.5 py-1 transition-colors ${
-              isItem ? 'bg-accent text-white' : 'text-muted'
-            }`}
-          >
-            By item
-          </button>
-        </div>
-      </div>
-
-      {isItem ? (
-        <BillItemsEditor
-          bill={bill}
-          people={people}
-          result={result}
-          onChange={onChange}
-        />
-      ) : (
-        <>
-          {/* Participants */}
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted">
-              Who ordered
-            </span>
-            <button
-              type="button"
-              onClick={splitEqually}
-              className="text-xs font-medium text-accent hover:underline"
-            >
-              Split equally
-            </button>
+      {open && (
+        <div className="border-t border-line px-4 pb-4 pt-1">
+          <div className="my-3.5">
+            <Segmented<'byPerson' | 'byItem'>
+              value={isItem ? 'byItem' : 'byPerson'}
+              onChange={setSplitMode}
+              options={[
+                { label: 'Per person', value: 'byPerson' },
+                { label: 'By item', value: 'byItem' },
+              ]}
+            />
           </div>
 
-          <div className="mt-2 divide-y divide-gray-100">
-            {people.map((p) => {
-              const ordering = isOrdering(p.id);
-              return (
-                <div key={p.id} className="flex items-center gap-3 py-2">
-                  <label className="flex w-28 shrink-0 items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={ordering}
-                      onChange={() => toggleOrder(p.id)}
-                      className="h-4 w-4 accent-[color:var(--color-accent)]"
-                    />
-                    <span className={ordering ? 'font-medium' : 'text-muted'}>
-                      {p.name}
-                    </span>
-                  </label>
-                  <div className="flex-1">
+          {isItem ? (
+            <BillItemsEditor
+              bill={bill}
+              people={people}
+              result={result}
+              onChange={onChange}
+            />
+          ) : (
+            <>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-faint">
+                  Who ordered
+                </span>
+                <Button variant="ghost" size="sm" onClick={splitEqually}>
+                  Split equally
+                </Button>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                {people.map((p) => {
+                  const ordering = isOrdering(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).tagName !== 'INPUT')
+                          toggleOrder(p.id);
+                      }}
+                      className={`flex cursor-pointer items-center gap-2.5 rounded-field px-2 py-1.5 transition-colors ${
+                        ordering ? 'bg-surface-2 opacity-100' : 'opacity-55'
+                      }`}
+                    >
+                      <span
+                        className={`grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md border-[1.5px] text-[11px] leading-none text-white ${
+                          ordering
+                            ? 'border-accent bg-accent'
+                            : 'border-line-strong bg-surface'
+                        }`}
+                      >
+                        {ordering ? '✓' : ''}
+                      </span>
+                      <Avatar
+                        name={p.name}
+                        index={personIndex(people, p.id)}
+                        size={26}
+                      />
+                      <span className="flex-1 text-sm font-semibold">
+                        {p.name}
+                      </span>
+                      <div
+                        className="w-[130px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoneyInput
+                          value={amountOf(p.id)}
+                          onChange={(v) => setAmount(p.id, v)}
+                          disabled={!ordering}
+                          ariaLabel={`${p.name} order amount`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Surcharge controls */}
+          <div className="mt-3.5 rounded-well bg-surface-2 p-3">
+            <Segmented<'fromTotal' | 'fromPercent'>
+              value={bill.mode}
+              onChange={(mode) =>
+                patch(
+                  mode === 'fromPercent'
+                    ? {
+                        mode,
+                        servicePercent: bill.servicePercent ?? 5,
+                        taxPercent: bill.taxPercent ?? 10,
+                      }
+                    : { mode },
+                )
+              }
+              options={[
+                { label: 'Know the total', value: 'fromTotal' },
+                { label: 'Tax & service %', value: 'fromPercent' },
+              ]}
+            />
+            <div className="mt-3">
+              {bill.mode === 'fromTotal' ? (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted">Total actually paid</span>
+                  <div className="w-[150px]">
                     <MoneyInput
-                      value={amountOf(p.id)}
-                      onChange={(v) => setAmount(p.id, v)}
-                      disabled={!ordering}
-                      ariaLabel={`${p.name} order amount`}
+                      value={bill.total ?? 0}
+                      onChange={(v) => patch({ total: v })}
+                      ariaLabel="Total paid"
                     />
                   </div>
-                  <span className="tnum w-28 shrink-0 text-right text-sm text-muted">
-                    {ordering ? formatIDR(result.perPerson[p.id] ?? 0) : '—'}
-                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {/* Surcharge controls */}
-      <div className="mt-4 rounded-xl bg-gray-50 p-3">
-        <div className="mb-3 inline-flex rounded-lg border border-gray-300 bg-white p-0.5 text-xs font-medium">
-          <button
-            type="button"
-            onClick={() => patch({ mode: 'fromTotal' })}
-            className={`rounded-md px-3 py-1.5 transition-colors ${
-              bill.mode === 'fromTotal' ? 'bg-accent text-white' : 'text-muted'
-            }`}
-          >
-            Know the total
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              patch({
-                mode: 'fromPercent',
-                servicePercent: bill.servicePercent ?? 5,
-                taxPercent: bill.taxPercent ?? 10,
-              })
-            }
-            className={`rounded-md px-3 py-1.5 transition-colors ${
-              bill.mode === 'fromPercent' ? 'bg-accent text-white' : 'text-muted'
-            }`}
-          >
-            Enter tax &amp; service %
-          </button>
-        </div>
-
-        {bill.mode === 'fromTotal' ? (
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-muted">Total actually paid</span>
-            <div className="w-40">
-              <MoneyInput
-                value={bill.total ?? 0}
-                onChange={(v) => patch({ total: v })}
-                ariaLabel="Total paid"
-              />
+              ) : (
+                <div className="flex gap-2.5">
+                  <PercentInput
+                    label="Service %"
+                    value={bill.servicePercent ?? 0}
+                    onChange={(v) => patch({ servicePercent: v })}
+                  />
+                  <PercentInput
+                    label="Tax %"
+                    value={bill.taxPercent ?? 0}
+                    onChange={(v) => patch({ taxPercent: v })}
+                  />
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <div className="flex gap-3">
-            <label className="flex-1 text-sm">
-              <span className="text-muted">Service %</span>
-              <PercentInput
-                value={bill.servicePercent ?? 0}
-                onChange={(v) => patch({ servicePercent: v })}
-              />
-            </label>
-            <label className="flex-1 text-sm">
-              <span className="text-muted">Tax %</span>
-              <PercentInput
-                value={bill.taxPercent ?? 0}
-                onChange={(v) => patch({ taxPercent: v })}
-              />
-            </label>
-          </div>
-        )}
-      </div>
 
-      {/* Breakdown */}
-      <dl className="mt-3 space-y-1 text-sm">
-        <Row label="Subtotal" value={formatIDR(result.subtotal)} />
-        {bill.mode === 'fromPercent' ? (
-          <>
-            <Row label="Service" value={formatIDR(result.service)} muted />
-            <Row label="Tax" value={formatIDR(result.tax)} muted />
-          </>
-        ) : (
-          <Row
-            label="Tax + service"
-            value={`${formatIDR(result.surcharge)} · ${result.effectiveSurchargePct.toFixed(1)}%`}
-            muted
-          />
-        )}
-        <Row label="Total" value={formatIDR(result.total)} strong />
-      </dl>
+          {/* Breakdown */}
+          <dl className="mt-2.5 flex flex-col gap-0.5 text-[13px]">
+            <Row label="Subtotal" value={formatIDR(result.subtotal)} muted />
+            {bill.mode === 'fromPercent' ? (
+              <>
+                <Row label="Service" value={formatIDR(result.service)} muted />
+                <Row label="Tax" value={formatIDR(result.tax)} muted />
+              </>
+            ) : (
+              <Row
+                label="Tax + service"
+                value={`${formatIDR(result.surcharge)} · ${result.effectiveSurchargePct.toFixed(1)}%`}
+                muted
+              />
+            )}
+          </dl>
+
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={requestRemove}
+              className="inline-flex cursor-pointer items-center justify-center rounded-full px-3 py-[7px] text-[12.5px] font-semibold text-negative transition-colors hover:bg-negative-soft"
+            >
+              Remove stop
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function PercentInput({
+  label,
   value,
   onChange,
 }: {
+  label: string;
   value: number;
   onChange: (v: number) => void;
 }) {
   return (
-    <div className="mt-1 flex items-center rounded-lg border border-gray-300 bg-white px-2.5 focus-within:border-accent">
-      <input
-        type="number"
-        min={0}
-        step={0.5}
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-        className="tnum w-full bg-transparent py-1.5 text-right text-sm outline-none"
-      />
-      <span className="select-none pl-1 text-sm text-muted">%</span>
-    </div>
+    <label className="flex-1">
+      <span className="text-[12.5px] text-muted">{label}</span>
+      <div className="mt-1 flex items-center rounded-field border-[1.5px] border-line-strong bg-surface px-2.5 focus-within:border-accent">
+        <input
+          type="number"
+          min={0}
+          step={0.5}
+          value={Number.isFinite(value) ? value : 0}
+          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          className="tnum w-full bg-transparent py-2 text-right text-sm font-semibold outline-none"
+        />
+        <span className="select-none pl-1 text-faint">%</span>
+      </div>
+    </label>
   );
 }
 
@@ -322,7 +354,7 @@ function Row({
     <div className="flex items-center justify-between">
       <dt className={muted ? 'text-muted' : ''}>{label}</dt>
       <dd
-        className={`tnum ${strong ? 'font-semibold' : ''} ${
+        className={`tnum whitespace-nowrap ${strong ? 'font-extrabold' : 'font-semibold'} ${
           muted ? 'text-muted' : ''
         }`}
       >

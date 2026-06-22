@@ -22,6 +22,9 @@ import HistoryPanel from './components/HistoryPanel';
 import PeoplePanel from './components/PeoplePanel';
 import BillsPanel from './components/BillsPanel';
 import SettlementPanel from './components/SettlementPanel';
+import { Button } from './components/ui';
+import { billShares, perPersonSummary, directSettlement } from './lib/settle';
+import { formatIDR } from './lib/money';
 
 const STORAGE_KEY = 'split-bill-id/v1'; // current working state
 const HISTORY_KEY = 'split-bill-id/history/v1'; // saved sessions
@@ -232,36 +235,80 @@ export default function App() {
     }
   };
 
+  /* ---- Derived totals for the summary hero ---- */
+  const summary = perPersonSummary(state);
+  const transfers = directSettlement(state);
+  const totalSpend = state.bills.reduce(
+    (sum, b) => sum + billShares(b).total,
+    0,
+  );
+
   return (
-    <div className="mx-auto min-h-full max-w-2xl px-4 pb-16 pt-8">
-      <header className="mb-6 flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Split Bill</h1>
-          <p className="text-sm text-muted">
-            A day out in Indonesia · all amounts in Rupiah
-          </p>
+    <div className="mx-auto min-h-full max-w-[600px] px-4 pb-[72px] pt-7">
+      <header className="mb-5 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="grid h-[34px] w-[34px] place-items-center rounded-[11px] bg-accent text-[18px] font-extrabold text-white"
+            style={{ transform: 'rotate(-6deg)' }}
+            aria-hidden
+          >
+            S
+          </span>
+          <div className="text-[19px] font-extrabold tracking-tight">
+            Split<span className="text-terracotta">.</span>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={undo}
             disabled={!canUndo}
             title="Undo (⌘Z)"
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
             ↶ Undo
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={redo}
             disabled={!canRedo}
             title="Redo (⌘⇧Z)"
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
             ↷ Redo
-          </button>
+          </Button>
         </div>
       </header>
+
+      {/* Summary hero */}
+      <div
+        className="relative mb-[22px] overflow-hidden rounded-hero p-[22px] text-white shadow-hero"
+        style={{ background: 'linear-gradient(135deg, #11806A 0%, #0B6B55 100%)' }}
+      >
+        <div
+          className="absolute -right-10 -top-10 h-40 w-40 rounded-full"
+          style={{ background: 'rgba(224,130,74,0.30)', filter: 'blur(8px)' }}
+          aria-hidden
+        />
+        <input
+          value={sessionName}
+          onChange={(e) => setSessionName(e.target.value)}
+          placeholder="Name this occasion"
+          aria-label="Session name"
+          className="relative w-[70%] border-0 bg-transparent p-0 text-[13px] font-semibold text-white/85 outline-none placeholder:text-white/60"
+        />
+        <div className="tnum relative my-0.5 text-[40px] font-extrabold leading-none tracking-tight">
+          {formatIDR(totalSpend)}
+        </div>
+        <div className="relative mb-4 text-[13px] text-white/80">
+          spent across the day
+        </div>
+        <div className="relative flex gap-2.5">
+          <Stat label="Stops" value={state.bills.length} />
+          <Stat label="People" value={state.people.length} />
+          <Stat label="Payments to settle" value={transfers.length} />
+        </div>
+      </div>
 
       <div className="space-y-6">
         <HistoryPanel
@@ -280,6 +327,7 @@ export default function App() {
         />
         <PeoplePanel
           people={state.people}
+          summary={summary}
           onAdd={addPerson}
           onRemove={removePerson}
         />
@@ -294,10 +342,23 @@ export default function App() {
         <SettlementPanel state={state} />
       </div>
 
-      <footer className="mt-10 text-center text-xs text-muted">
+      <footer className="mt-9 text-center text-xs leading-relaxed text-muted">
         Tax &amp; service are split in proportion to what each person ordered.
+        <br />
         Don&apos;t know the %? Just enter the total paid.
       </footer>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div
+      className="flex-1 rounded-well px-3 py-2.5"
+      style={{ background: 'rgba(255,255,255,0.12)' }}
+    >
+      <div className="tnum text-[22px] font-extrabold leading-none">{value}</div>
+      <div className="mt-1 text-[11px] text-white/80">{label}</div>
     </div>
   );
 }

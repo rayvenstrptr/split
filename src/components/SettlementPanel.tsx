@@ -6,6 +6,8 @@ import {
   perPersonSummary,
 } from '../lib/settle';
 import { formatIDR } from '../lib/money';
+import { personIndex } from '../lib/colors';
+import { Avatar, Button, SectionHead } from './ui';
 
 type Props = { state: AppState };
 
@@ -14,7 +16,7 @@ export default function SettlementPanel({ state }: Props) {
   const [exporting, setExporting] = useState<null | 'png' | 'pdf'>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  const { summary, byPayer, nameById, balanced } = useMemo(() => {
+  const { summary, transfers, byPayer, nameById, balanced } = useMemo(() => {
     const summary = perPersonSummary(state);
     const net = netBalances(state);
     const transfers = directSettlement(state);
@@ -27,7 +29,7 @@ export default function SettlementPanel({ state }: Props) {
     }
     const balanced =
       Math.abs(Object.values(net).reduce((s, v) => s + v, 0)) < 1;
-    return { summary, byPayer, nameById, balanced };
+    return { summary, transfers, byPayer, nameById, balanced };
   }, [state]);
 
   const copySummary = async () => {
@@ -62,8 +64,8 @@ export default function SettlementPanel({ state }: Props) {
     const { toPng } = await import('html-to-image');
     return toPng(node, {
       pixelRatio: 2,
-      backgroundColor: '#ffffff',
-      // Pad the capture so the rounded card isn't flush to the edge.
+      backgroundColor: '#f4f0e8',
+      // Pad the capture so the rounded cards aren't flush to the edge.
       style: { padding: '20px' },
     });
   };
@@ -106,145 +108,101 @@ export default function SettlementPanel({ state }: Props) {
   const busy = exporting !== null;
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-base font-semibold">Settlement</h2>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={copySummary}
-            disabled={busy}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-          >
-            {copied ? 'Copied!' : 'Copy summary'}
-          </button>
-          <button
-            type="button"
-            onClick={exportPng}
-            disabled={busy}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-          >
-            {exporting === 'png' ? 'Exporting…' : 'PNG'}
-          </button>
-          <button
-            type="button"
-            onClick={exportPdf}
-            disabled={busy}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-          >
-            {exporting === 'pdf' ? 'Exporting…' : 'PDF'}
-          </button>
-        </div>
-      </div>
+    <section>
+      <SectionHead
+        title="Who pays whom"
+        right={
+          <div className="flex items-center gap-1.5">
+            <Button variant="secondary" size="sm" onClick={copySummary} disabled={busy}>
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={exportPng} disabled={busy}>
+              {exporting === 'png' ? '…' : 'PNG'}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={exportPdf} disabled={busy}>
+              {exporting === 'pdf' ? '…' : 'PDF'}
+            </Button>
+          </div>
+        }
+      />
 
-      <div ref={exportRef} className="bg-white">
-      {/* Who pays whom — every person listed */}
-      <ul className="space-y-2">
-        {summary.map((s) => {
-          const outgoing = byPayer.get(s.id) ?? [];
-          return (
-            <li key={s.id} className="rounded-xl bg-gray-50 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <Avatar
-                  name={nameById[s.id]}
-                  accent={outgoing.length === 0 && s.net > 0}
-                />
-                <span className="text-sm font-semibold">{nameById[s.id]}</span>
-                {outgoing.length > 0 ? (
-                  <span className="text-xs text-muted">pays</span>
-                ) : s.net > 0 ? (
-                  <span className="ml-auto text-xs font-medium text-positive">
-                    owed {formatIDR(s.net)} · nothing to pay
-                  </span>
-                ) : (
-                  <span className="ml-auto text-xs text-muted">settled up</span>
-                )}
+      <div ref={exportRef} className="bg-transparent">
+        {/* Payment cards */}
+        <div className="flex flex-col gap-2">
+          {transfers.length === 0 && (
+            <div className="rounded-card border border-line bg-surface p-5 text-center text-muted">
+              Everyone&apos;s settled up.
+            </div>
+          )}
+          {transfers.map((t, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 rounded-card border border-line bg-surface px-4 py-3.5 shadow-soft"
+            >
+              <Avatar
+                name={nameById[t.from]}
+                index={personIndex(state.people, t.from)}
+                size={38}
+              />
+              <div className="flex flex-1 items-center gap-2 text-sm">
+                <strong className="font-bold">{nameById[t.from]}</strong>
+                <span className="text-faint">→</span>
+                <strong className="font-bold">{nameById[t.to]}</strong>
               </div>
-              {outgoing.length > 0 && (
-                <ul className="mt-2 space-y-1.5 pl-2">
-                  {outgoing.map((t, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center justify-between"
-                    >
-                      <span className="flex items-center gap-2 text-sm">
-                        <span className="text-muted">→</span>
-                        <Avatar name={nameById[t.to]} />
-                        <span className="font-medium">{nameById[t.to]}</span>
-                      </span>
-                      <span className="tnum font-semibold text-ink">
-                        {formatIDR(t.amount)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      {/* Per-person balances */}
-      <div className="mt-5">
-        <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-          Balances
-        </h3>
-        <div className="overflow-hidden rounded-xl border border-gray-200">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-muted">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium">Person</th>
-                <th className="px-3 py-2 text-right font-medium">Paid</th>
-                <th className="px-3 py-2 text-right font-medium">Spending</th>
-                <th className="px-3 py-2 text-right font-medium">Net</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {summary.map((s) => (
-                <tr key={s.id}>
-                  <td className="px-3 py-2 font-medium">{nameById[s.id]}</td>
-                  <td className="tnum px-3 py-2 text-right text-muted">
-                    {formatIDR(s.paid)}
-                  </td>
-                  <td className="tnum px-3 py-2 text-right text-muted">
-                    {formatIDR(s.consumed)}
-                  </td>
-                  <td
-                    className={`tnum px-3 py-2 text-right font-semibold ${
-                      s.net > 0
-                        ? 'text-positive'
-                        : s.net < 0
-                          ? 'text-negative'
-                          : 'text-muted'
-                    }`}
-                  >
-                    {s.net > 0 ? '+' : ''}
-                    {formatIDR(s.net)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              <Avatar
+                name={nameById[t.to]}
+                index={personIndex(state.people, t.to)}
+                size={38}
+              />
+              <div className="tnum min-w-[110px] whitespace-nowrap text-right text-base font-extrabold text-accent">
+                {formatIDR(t.amount)}
+              </div>
+            </div>
+          ))}
         </div>
-        <p className="mt-2 text-xs text-muted">
+
+        {/* Per-person balances */}
+        <SectionHead title="Balances" className="mt-[22px]" />
+        <div className="overflow-hidden rounded-card border border-line bg-surface">
+          {summary.map((s, i) => (
+            <div
+              key={s.id}
+              className={`flex items-center gap-3 px-4 py-3 ${
+                i === 0 ? '' : 'border-t border-line'
+              }`}
+            >
+              <Avatar
+                name={nameById[s.id]}
+                index={personIndex(state.people, s.id)}
+                size={32}
+              />
+              <span className="flex-1 font-semibold">{nameById[s.id]}</span>
+              <div className="text-right">
+                <div className="tnum whitespace-nowrap text-[11.5px] text-faint">
+                  paid {formatIDR(s.paid)} · spent {formatIDR(s.consumed)}
+                </div>
+                <div
+                  className={`tnum whitespace-nowrap text-sm font-extrabold ${
+                    s.net > 0
+                      ? 'text-positive'
+                      : s.net < 0
+                        ? 'text-negative'
+                        : 'text-muted'
+                  }`}
+                >
+                  {s.net > 0 ? '+' : ''}
+                  {formatIDR(s.net)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mx-0.5 mt-2.5 text-xs text-muted">
           {balanced
             ? 'Balances check out — paid and shares net to zero.'
             : 'Heads up: balances do not net to zero.'}
         </p>
       </div>
-      </div>
     </section>
-  );
-}
-
-function Avatar({ name, accent }: { name: string; accent?: boolean }) {
-  return (
-    <span
-      className={`grid h-7 w-7 place-items-center rounded-full text-xs font-semibold ${
-        accent ? 'bg-accent text-white' : 'bg-gray-200 text-ink'
-      }`}
-    >
-      {name.slice(0, 2)}
-    </span>
   );
 }

@@ -89,35 +89,39 @@ function OrderControls({
   onDragStart: (e: DragEvent) => void;
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-0.5">
+    <div className="flex shrink-0 items-center gap-px">
       <span
         draggable
         onDragStart={onDragStart}
         aria-label="Drag to reorder"
         title="Drag to reorder"
-        className="cursor-grab select-none px-0.5 text-muted active:cursor-grabbing"
+        className="cursor-grab select-none px-0.5 text-[15px] leading-none text-faint active:cursor-grabbing"
       >
         ⠿
       </span>
-      <span className="tnum w-4 text-center text-xs text-muted">{index + 1}</span>
-      <button
-        type="button"
-        onClick={() => onMove(-1)}
-        disabled={index === 0}
-        aria-label="Move up"
-        className="grid h-5 w-5 place-items-center rounded text-muted transition-colors hover:text-accent disabled:opacity-30 disabled:hover:text-muted"
-      >
-        ▲
-      </button>
-      <button
-        type="button"
-        onClick={() => onMove(1)}
-        disabled={index === count - 1}
-        aria-label="Move down"
-        className="grid h-5 w-5 place-items-center rounded text-muted transition-colors hover:text-accent disabled:opacity-30 disabled:hover:text-muted"
-      >
-        ▼
-      </button>
+      <span className="tnum w-4 text-center text-xs font-bold text-faint">
+        {index + 1}
+      </span>
+      <div className="flex flex-col">
+        <button
+          type="button"
+          onClick={() => onMove(-1)}
+          disabled={index === 0}
+          aria-label="Move up"
+          className="grid h-[13px] w-[18px] place-items-center text-[8px] leading-none text-faint transition-colors hover:text-accent disabled:text-line-strong disabled:hover:text-line-strong"
+        >
+          ▲
+        </button>
+        <button
+          type="button"
+          onClick={() => onMove(1)}
+          disabled={index === count - 1}
+          aria-label="Move down"
+          className="grid h-[13px] w-[18px] place-items-center text-[8px] leading-none text-faint transition-colors hover:text-accent disabled:text-line-strong disabled:hover:text-line-strong"
+        >
+          ▼
+        </button>
+      </div>
     </div>
   );
 }
