@@ -97,6 +97,17 @@ export default function BillItemsEditor({ bill, people, result, onChange }: Prop
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {it.ownerIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => patchItem(it.id, { ownerIds: [] })}
+                      aria-label="Clear all owners"
+                      title="Clear all owners"
+                      className="rounded-full border border-line px-2 py-[4px] text-[11px] font-bold text-faint transition-colors hover:border-negative hover:text-negative"
+                    >
+                      Clear
+                    </button>
+                  )}
                   {people.map((p) => {
                     const owns = it.ownerIds.includes(p.id);
                     return (
