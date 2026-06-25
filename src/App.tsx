@@ -339,7 +339,11 @@ export default function App() {
           onRemove={removeBill}
           onReorder={reorderBills}
         />
-        <SettlementPanel state={state} />
+        <SettlementPanel
+          state={state}
+          sessionName={sessionName.trim() || undefined}
+          savedAt={history.find((s) => s.id === currentId)?.savedAt}
+        />
       </div>
 
       <footer className="mt-9 text-center text-xs leading-relaxed text-muted">

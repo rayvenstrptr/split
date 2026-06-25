@@ -25,3 +25,4 @@ npm-debug.log*
 
 # TypeScript incremental build info
 *.tsbuildinfo
+.vercel

@@ -1,20 +1,25 @@
 import { useMemo, useRef, useState } from 'react';
 import type { AppState } from '../types';
-import {
-  directSettlement,
-  netBalances,
-  perPersonSummary,
-} from '../lib/settle';
+import { directSettlement, netBalances, perPersonSummary } from '../lib/settle';
 import { formatIDR } from '../lib/money';
 import { personIndex } from '../lib/colors';
-import { Avatar, Button, SectionHead } from './ui';
+import { Avatar, Button, Segmented, SectionHead } from './ui';
+import ExportSheet from './ExportSheet';
 
-type Props = { state: AppState };
+type Props = {
+  state: AppState;
+  /** Name of the session being viewed/exported (for the export sheet header). */
+  sessionName?: string;
+  /** Epoch ms the session was saved (defaults to now). */
+  savedAt?: number;
+};
 
-export default function SettlementPanel({ state }: Props) {
+export default function SettlementPanel({ state, sessionName, savedAt }: Props) {
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState<null | 'png' | 'pdf'>(null);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const [exportStyle, setExportStyle] = useState<'mono' | 'color'>('mono');
+  // The hidden, fixed-width node the PNG/PDF are captured from.
+  const sheetRef = useRef<HTMLDivElement>(null);
 
   const { summary, transfers, byPayer, nameById, balanced } = useMemo(() => {
     const summary = perPersonSummary(state);
@@ -27,8 +32,7 @@ export default function SettlementPanel({ state }: Props) {
       list.push(t);
       byPayer.set(t.from, list);
     }
-    const balanced =
-      Math.abs(Object.values(net).reduce((s, v) => s + v, 0)) < 1;
+    const balanced = Math.abs(Object.values(net).reduce((s, v) => s + v, 0)) < 1;
     return { summary, transfers, byPayer, nameById, balanced };
   }, [state]);
 
@@ -38,13 +42,9 @@ export default function SettlementPanel({ state }: Props) {
       const outgoing = byPayer.get(s.id) ?? [];
       if (outgoing.length > 0) {
         lines.push(`*${nameById[s.id]}* pays:`);
-        for (const t of outgoing) {
-          lines.push(`   → ${nameById[t.to]}: ${formatIDR(t.amount)}`);
-        }
+        for (const t of outgoing) lines.push(`   → ${nameById[t.to]}: ${formatIDR(t.amount)}`);
       } else if (s.net > 0) {
-        lines.push(
-          `*${nameById[s.id]}*: owed ${formatIDR(s.net)} · nothing to pay`,
-        );
+        lines.push(`*${nameById[s.id]}*: owed ${formatIDR(s.net)} · nothing to pay`);
       } else {
         lines.push(`*${nameById[s.id]}*: settled up`);
       }
@@ -59,15 +59,22 @@ export default function SettlementPanel({ state }: Props) {
   };
 
   const renderPng = async () => {
-    const node = exportRef.current;
+    const node = sheetRef.current;
     if (!node) return null;
     const { toPng } = await import('html-to-image');
-    return toPng(node, {
-      pixelRatio: 2,
-      backgroundColor: '#f4f0e8',
-      // Pad the capture so the rounded cards aren't flush to the edge.
-      style: { padding: '20px' },
-    });
+    // The node already carries its 24px cream frame (see below), so the torn
+    // edge + card shadow have room and nothing is clipped. Capture it at its
+    // full measured size — don't inflate the clone with a padding style, which
+    // would push content past the canvas edge and slice the right side off.
+    return toPng(node, { pixelRatio: 2 });
+  };
+
+  const fileBase = () => {
+    const slug = (sessionName ?? 'split-bill')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return `${slug || 'split-bill'}-${new Date(savedAt ?? Date.now()).toISOString().slice(0, 10)}`;
   };
 
   const exportPng = async () => {
@@ -77,7 +84,7 @@ export default function SettlementPanel({ state }: Props) {
       if (!dataUrl) return;
       const a = document.createElement('a');
       a.href = dataUrl;
-      a.download = `split-bill-${new Date().toISOString().slice(0, 10)}.png`;
+      a.download = `${fileBase()}.png`;
       a.click();
     } finally {
       setExporting(null);
@@ -99,7 +106,7 @@ export default function SettlementPanel({ state }: Props) {
         format: [img.width, img.height],
       });
       pdf.addImage(dataUrl, 'PNG', 0, 0, img.width, img.height);
-      pdf.save(`split-bill-${new Date().toISOString().slice(0, 10)}.pdf`);
+      pdf.save(`${fileBase()}.pdf`);
     } finally {
       setExporting(null);
     }
@@ -126,82 +133,83 @@ export default function SettlementPanel({ state }: Props) {
         }
       />
 
-      <div ref={exportRef} className="bg-transparent">
-        {/* Payment cards */}
-        <div className="flex flex-col gap-2">
-          {transfers.length === 0 && (
-            <div className="rounded-card border border-line bg-surface p-5 text-center text-muted">
-              Everyone&apos;s settled up.
-            </div>
-          )}
-          {transfers.map((t, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 rounded-card border border-line bg-surface px-4 py-3.5 shadow-soft"
-            >
-              <Avatar
-                name={nameById[t.from]}
-                index={personIndex(state.people, t.from)}
-                size={38}
-              />
-              <div className="flex flex-1 items-center gap-2 text-sm">
-                <strong className="font-bold">{nameById[t.from]}</strong>
-                <span className="text-faint">→</span>
-                <strong className="font-bold">{nameById[t.to]}</strong>
-              </div>
-              <Avatar
-                name={nameById[t.to]}
-                index={personIndex(state.people, t.to)}
-                size={38}
-              />
-              <div className="tnum min-w-[110px] whitespace-nowrap text-right text-base font-extrabold text-accent">
-                {formatIDR(t.amount)}
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Export look toggle */}
+      <div className="mb-3 max-w-[220px]">
+        <Segmented<'mono' | 'color'>
+          value={exportStyle}
+          onChange={setExportStyle}
+          options={[
+            { label: 'Monochrome', value: 'mono' },
+            { label: 'Color', value: 'color' },
+          ]}
+        />
+      </div>
 
-        {/* Per-person balances */}
-        <SectionHead title="Balances" className="mt-[22px]" />
-        <div className="overflow-hidden rounded-card border border-line bg-surface">
-          {summary.map((s, i) => (
-            <div
-              key={s.id}
-              className={`flex items-center gap-3 px-4 py-3 ${
-                i === 0 ? '' : 'border-t border-line'
-              }`}
-            >
-              <Avatar
-                name={nameById[s.id]}
-                index={personIndex(state.people, s.id)}
-                size={32}
-              />
-              <span className="flex-1 font-semibold">{nameById[s.id]}</span>
-              <div className="text-right">
-                <div className="tnum whitespace-nowrap text-[11.5px] text-faint">
-                  paid {formatIDR(s.paid)} · spent {formatIDR(s.consumed)}
-                </div>
-                <div
-                  className={`tnum whitespace-nowrap text-sm font-extrabold ${
-                    s.net > 0
-                      ? 'text-positive'
-                      : s.net < 0
-                        ? 'text-negative'
-                        : 'text-muted'
-                  }`}
-                >
-                  {s.net > 0 ? '+' : ''}
-                  {formatIDR(s.net)}
-                </div>
+      {/* On-screen quick summary (unchanged) */}
+      <div className="flex flex-col gap-2">
+        {transfers.length === 0 && (
+          <div className="rounded-card border border-line bg-surface p-5 text-center text-muted">
+            Everyone&apos;s settled up.
+          </div>
+        )}
+        {transfers.map((t, i) => (
+          <div key={i} className="flex items-center gap-3 rounded-card border border-line bg-surface px-4 py-3.5 shadow-soft">
+            <Avatar name={nameById[t.from]} index={personIndex(state.people, t.from)} size={38} />
+            <div className="flex flex-1 items-center gap-2 text-sm">
+              <strong className="font-bold">{nameById[t.from]}</strong>
+              <span className="text-faint">→</span>
+              <strong className="font-bold">{nameById[t.to]}</strong>
+            </div>
+            <Avatar name={nameById[t.to]} index={personIndex(state.people, t.to)} size={38} />
+            <div className="tnum min-w-[110px] whitespace-nowrap text-right text-base font-extrabold text-accent">
+              {formatIDR(t.amount)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <SectionHead title="Balances" className="mt-[22px]" />
+      <div className="overflow-hidden rounded-card border border-line bg-surface">
+        {summary.map((s, i) => (
+          <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${i === 0 ? '' : 'border-t border-line'}`}>
+            <Avatar name={nameById[s.id]} index={personIndex(state.people, s.id)} size={32} />
+            <span className="flex-1 font-semibold">{nameById[s.id]}</span>
+            <div className="text-right">
+              <div className="tnum whitespace-nowrap text-[11.5px] text-faint">
+                paid {formatIDR(s.paid)} · spent {formatIDR(s.consumed)}
+              </div>
+              <div
+                className={`tnum whitespace-nowrap text-sm font-extrabold ${
+                  s.net > 0 ? 'text-positive' : s.net < 0 ? 'text-negative' : 'text-muted'
+                }`}
+              >
+                {s.net > 0 ? '+' : ''}
+                {formatIDR(s.net)}
               </div>
             </div>
-          ))}
+          </div>
+        ))}
+      </div>
+      <p className="mx-0.5 mt-2.5 text-xs text-muted">
+        {balanced ? 'Balances check out — paid and shares net to zero.' : 'Heads up: balances do not net to zero.'}
+      </p>
+
+      {/* Off-screen export artifact — captured by PNG / PDF, never shown.
+          The 24px cream frame is part of the captured node (inline-block so it
+          shrink-wraps to the sheet width) so html-to-image measures the full
+          padded size and nothing clips on the right. */}
+      <div aria-hidden style={{ position: 'fixed', left: -100000, top: 0, pointerEvents: 'none' }}>
+        <div
+          ref={sheetRef}
+          style={{ display: 'inline-block', padding: 24, background: '#f4f0e8' }}
+        >
+          <ExportSheet
+            state={state}
+            sessionName={sessionName ?? 'Untitled session'}
+            savedAt={savedAt}
+            variant={exportStyle}
+          />
         </div>
-        <p className="mx-0.5 mt-2.5 text-xs text-muted">
-          {balanced
-            ? 'Balances check out — paid and shares net to zero.'
-            : 'Heads up: balances do not net to zero.'}
-        </p>
       </div>
     </section>
   );
