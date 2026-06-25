@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AppState, Bill, Person, SavedSession } from './types';
 import {
   useLocalStorage,
@@ -18,7 +18,16 @@ import {
   slugify,
   fileDate,
 } from './lib/backup';
+import {
+  cloudConfigured,
+  normalizeUsername,
+  isCloudError,
+  claim,
+  pull,
+  push,
+} from './lib/cloud';
 import HistoryPanel from './components/HistoryPanel';
+import CloudSyncPanel, { type SyncStatus } from './components/CloudSyncPanel';
 import PeoplePanel from './components/PeoplePanel';
 import BillsPanel from './components/BillsPanel';
 import SettlementPanel from './components/SettlementPanel';
@@ -30,6 +39,10 @@ const STORAGE_KEY = 'split-bill-id/v1'; // current working state
 const HISTORY_KEY = 'split-bill-id/history/v1'; // saved sessions
 const NAME_KEY = 'split-bill-id/session-name/v1';
 const CURRENT_ID_KEY = 'split-bill-id/session-id/v1';
+const ACCOUNT_KEY = 'split-bill-id/account/v1'; // cloud-sync credentials
+
+/** Cloud-sync identity. PIN is cached locally so auto-push can run silently. */
+type Account = { username: string; pin: string };
 
 export default function App() {
   const { state, setState, undo, redo, canUndo, canRedo } =
@@ -42,11 +55,41 @@ export default function App() {
     CURRENT_ID_KEY,
     null,
   );
+  const [account, setAccount] = useLocalStorage<Account | null>(
+    ACCOUNT_KEY,
+    null,
+  );
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
   // Persist the working state (the undo stacks themselves stay in memory).
   useEffect(() => {
     writeStored(STORAGE_KEY, state);
   }, [state]);
+
+  // Cross-device sync: while logged in, push history to the cloud after edits.
+  // The push is a read-merge-write (union cloud + local) so it never clobbers a
+  // newer session from another device. We skip the initial mount so reopening the
+  // app doesn't fire a needless round-trip, and we deliberately do NOT update the
+  // local list here — pulling another device's sessions into view is the "Sync now"
+  // button's job, keeping the current screen stable while you work.
+  const firstSync = useRef(true);
+  useEffect(() => {
+    if (firstSync.current) {
+      firstSync.current = false;
+      return;
+    }
+    if (!account) return;
+    setSyncStatus('syncing');
+    const t = setTimeout(() => {
+      pull(account.username, account.pin)
+        .then((cloud) =>
+          push(account.username, account.pin, mergeSessions(cloud, history).merged),
+        )
+        .then(() => setSyncStatus('synced'))
+        .catch(() => setSyncStatus('error'));
+    }, 800);
+    return () => clearTimeout(t);
+  }, [history, account]);
 
   // Keyboard: Cmd/Ctrl+Z undo, Cmd/Ctrl+Shift+Z or Ctrl+Y redo.
   // Skip while focus is in a field so native text-edit undo still works.
@@ -235,6 +278,56 @@ export default function App() {
     }
   };
 
+  /* ---- Cloud sync (optional, username + 4-digit PIN) ---- */
+  const cloudCreate = async (
+    username: string,
+    pin: string,
+  ): Promise<string | null> => {
+    const uname = normalizeUsername(username);
+    try {
+      await claim(uname, pin, history);
+      setAccount({ username: uname, pin });
+      setSyncStatus('synced');
+      return null;
+    } catch (e) {
+      setSyncStatus('error');
+      return cloudErrorMessage(e, 'create');
+    }
+  };
+
+  const cloudLogin = async (
+    username: string,
+    pin: string,
+  ): Promise<string | null> => {
+    const uname = normalizeUsername(username);
+    try {
+      const pulled = await pull(uname, pin);
+      setHistory(mergeSessions(history, pulled).merged);
+      setAccount({ username: uname, pin });
+      setSyncStatus('synced');
+      return null;
+    } catch (e) {
+      setSyncStatus('error');
+      return cloudErrorMessage(e, 'login');
+    }
+  };
+
+  const cloudSyncNow = () => {
+    if (!account) return;
+    setSyncStatus('syncing');
+    pull(account.username, account.pin)
+      .then((pulled) => {
+        setHistory(mergeSessions(history, pulled).merged);
+        setSyncStatus('synced');
+      })
+      .catch(() => setSyncStatus('error'));
+  };
+
+  const cloudLogout = () => {
+    setAccount(null);
+    setSyncStatus('idle');
+  };
+
   /* ---- Derived totals for the summary hero ---- */
   const summary = perPersonSummary(state);
   const transfers = directSettlement(state);
@@ -311,6 +404,16 @@ export default function App() {
       </div>
 
       <div className="space-y-6">
+        {cloudConfigured() && (
+          <CloudSyncPanel
+            account={account ? { username: account.username } : null}
+            syncStatus={syncStatus}
+            onLogin={cloudLogin}
+            onCreate={cloudCreate}
+            onSyncNow={cloudSyncNow}
+            onLogout={cloudLogout}
+          />
+        )}
         <HistoryPanel
           sessionName={sessionName}
           onNameChange={setSessionName}
@@ -353,6 +456,22 @@ export default function App() {
       </footer>
     </div>
   );
+}
+
+/** Map a thrown cloud error to friendly copy for the login/create form. */
+function cloudErrorMessage(e: unknown, ctx: 'login' | 'create'): string {
+  if (isCloudError(e)) {
+    if (e === 'username_taken') {
+      return 'That name is taken — log in if it’s yours, or pick another.';
+    }
+    if (e === 'invalid_credentials') {
+      return ctx === 'login'
+        ? 'Wrong username or code.'
+        : 'Enter a username and a 4-digit code.';
+    }
+    return 'Couldn’t reach the cloud. Check your connection and try again.';
+  }
+  return 'Something went wrong. Please try again.';
 }
 
 function Stat({ label, value }: { label: string; value: number }) {

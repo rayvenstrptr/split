@@ -48,12 +48,11 @@ function isValidSession(s: unknown): s is SavedSession {
 }
 
 /**
- * Parse a backup file. Accepts either a wrapped `{ sessions: [...] }` object or a
- * raw `SavedSession[]` array (so the JSON copied straight from localStorage works).
- * Throws if no valid sessions are found.
+ * Validate an already-parsed backup value. Accepts either a wrapped
+ * `{ sessions: [...] }` object or a raw `SavedSession[]` array. Throws if no valid
+ * sessions are found. Shared by `parseBackup` (file restore) and cloud pull.
  */
-export function parseBackup(text: string): SavedSession[] {
-  const data: unknown = JSON.parse(text);
+export function parseBackupData(data: unknown): SavedSession[] {
   const raw = Array.isArray(data)
     ? data
     : (data as { sessions?: unknown })?.sessions;
@@ -65,6 +64,15 @@ export function parseBackup(text: string): SavedSession[] {
     throw new Error('No valid sessions found in the file.');
   }
   return sessions;
+}
+
+/**
+ * Parse a backup file. Accepts either a wrapped `{ sessions: [...] }` object or a
+ * raw `SavedSession[]` array (so the JSON copied straight from localStorage works).
+ * Throws if no valid sessions are found.
+ */
+export function parseBackup(text: string): SavedSession[] {
+  return parseBackupData(JSON.parse(text));
 }
 
 /**
