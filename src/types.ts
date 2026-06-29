@@ -51,3 +51,26 @@ export type SavedSession = {
   savedAt: number; // epoch ms
   state: AppState;
 };
+
+/** What an {@link ActivityEvent} is about — drives the colored dot in the panel. */
+export type ActivityKind =
+  | 'session'
+  | 'bill'
+  | 'person'
+  | 'cloud'
+  | 'backup'
+  | 'edit'
+  | 'system';
+
+/**
+ * One entry in the activity log. `message` is pre-rendered so the historical log
+ * never drifts as code changes. `dedupeKey` is a local-only coalescing hint (e.g.
+ * a bill id) and is dropped before the event is uploaded.
+ */
+export type ActivityEvent = {
+  id: string; // uid('a_')
+  at: number; // epoch ms
+  kind: ActivityKind;
+  message: string;
+  dedupeKey?: string;
+};

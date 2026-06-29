@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AppState, Bill, Person, SavedSession } from './types';
+import type { ActivityEvent, AppState, Bill, Person, SavedSession } from './types';
 import {
   useLocalStorage,
   readStored,
   writeStored,
 } from './hooks/useLocalStorage';
 import { useUndoableState } from './hooks/useUndoableState';
+import { useActivityLog } from './hooks/useActivityLog';
 import { sampleState } from './data/sample';
 import { uid } from './lib/id';
 import { formatDate } from './lib/date';
@@ -25,12 +26,16 @@ import {
   claim,
   pull,
   push,
+  appendActivity,
+  pullActivity,
 } from './lib/cloud';
+import { mergeEvents } from './lib/activity';
 import HistoryPanel from './components/HistoryPanel';
 import CloudSyncPanel, { type SyncStatus } from './components/CloudSyncPanel';
 import PeoplePanel from './components/PeoplePanel';
 import BillsPanel from './components/BillsPanel';
 import SettlementPanel from './components/SettlementPanel';
+import ActivityPanel from './components/ActivityPanel';
 import { Button } from './components/ui';
 import { billShares, perPersonSummary, directSettlement } from './lib/settle';
 import { formatIDR } from './lib/money';
@@ -60,6 +65,14 @@ export default function App() {
     null,
   );
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const {
+    events: activity,
+    pending,
+    log,
+    mergeIn,
+    dropPending,
+    clear: clearActivity,
+  } = useActivityLog();
 
   // Persist the working state (the undo stacks themselves stay in memory).
   useEffect(() => {
@@ -91,6 +104,37 @@ export default function App() {
     return () => clearTimeout(t);
   }, [history, account]);
 
+  // Activity archive upload: while logged in, append new events + any pending roll-offs
+  // to the durable `activity_events` table (debounced). `uploadedAt` is a watermark so we
+  // re-send only fresh/bumped active events, while `pending` is always flushed in full.
+  // Failures (incl. the table not existing before the migration is run) are swallowed so
+  // the app keeps working offline; the events stay local and retry on the next change.
+  const firstActivitySync = useRef(true);
+  const uploadedAt = useRef(0);
+  useEffect(() => {
+    if (firstActivitySync.current) {
+      firstActivitySync.current = false;
+      if (pending.length === 0) return; // mere reopen, nothing waiting — skip
+    }
+    if (!account) return;
+    const t = setTimeout(() => {
+      const fresh = activity.filter((e) => e.at > uploadedAt.current);
+      const batch = [...pending, ...fresh];
+      if (batch.length === 0) return;
+      const pendingIds = pending.map((e) => e.id);
+      const maxAt = batch.reduce((m, e) => Math.max(m, e.at), uploadedAt.current);
+      appendActivity(account.username, account.pin, batch)
+        .then(() => {
+          uploadedAt.current = maxAt;
+          dropPending(pendingIds);
+        })
+        .catch(() => {
+          /* keep pending; retried on the next change */
+        });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [activity, pending, account, dropPending]);
+
   // Keyboard: Cmd/Ctrl+Z undo, Cmd/Ctrl+Shift+Z or Ctrl+Y redo.
   // Skip while focus is in a field so native text-edit undo still works.
   useEffect(() => {
@@ -119,9 +163,11 @@ export default function App() {
   const addPerson = (name: string) => {
     const person: Person = { id: uid('p_'), name };
     setState((s) => ({ ...s, people: [...s.people, person] }));
+    log('person', `Added ${name}`);
   };
 
   const removePerson = (id: string) => {
+    const person = state.people.find((p) => p.id === id);
     const used = state.bills.some(
       (b) =>
         b.payerId === id ||
@@ -150,6 +196,7 @@ export default function App() {
       }));
       return { people, bills };
     });
+    log('person', `Removed ${person?.name ?? 'someone'}`);
   };
 
   /* ---- Bills ---- */
@@ -163,6 +210,7 @@ export default function App() {
       total: 0,
     };
     setState((s) => ({ ...s, bills: [...s.bills, newBill] }));
+    log('bill', `Added stop "${newBill.name}"`);
   };
 
   const updateBill = (bill: Bill) => {
@@ -170,14 +218,18 @@ export default function App() {
       ...s,
       bills: s.bills.map((b) => (b.id === bill.id ? bill : b)),
     }));
+    log('edit', `Edited "${bill.name}"`, bill.id);
   };
 
   const removeBill = (id: string) => {
+    const bill = state.bills.find((b) => b.id === id);
     setState((s) => ({ ...s, bills: s.bills.filter((b) => b.id !== id) }));
+    log('bill', `Deleted "${bill?.name ?? 'a stop'}"`);
   };
 
   const reorderBills = (from: number, to: number) => {
     setState((s) => ({ ...s, bills: moveItem(s.bills, from, to) }));
+    log('edit', 'Reordered stops', 'reorder-bills');
   };
 
   /* ---- Sessions / history ---- */
@@ -192,10 +244,12 @@ export default function App() {
           s.id === currentId ? { ...s, name, savedAt: now, state: snapshot } : s,
         ),
       );
+      log('session', `Updated "${name}"`);
     } else {
       const id = uid('s_');
       setCurrentId(id);
       setHistory([{ id, name, savedAt: now, state: snapshot }, ...history]);
+      log('session', `Saved "${name}"`);
     }
     setSessionName(name);
   };
@@ -206,6 +260,7 @@ export default function App() {
       if (session) {
         setState(structuredClone(session.state));
         setSessionName(session.name);
+        log('session', `Loaded "${session.name}"`);
       }
       return;
     }
@@ -219,6 +274,7 @@ export default function App() {
     setState(structuredClone(session.state));
     setSessionName(session.name);
     setCurrentId(session.id);
+    log('session', `Loaded "${session.name}"`);
   };
 
   const deleteSession = (id: string) => {
@@ -226,6 +282,7 @@ export default function App() {
     if (!confirm(`Delete saved session "${session?.name ?? ''}"?`)) return;
     setHistory(history.filter((s) => s.id !== id));
     if (currentId === id) setCurrentId(null);
+    log('session', `Deleted session "${session?.name ?? ''}"`);
   };
 
   const newSession = () => {
@@ -233,6 +290,7 @@ export default function App() {
     setState((s) => ({ people: s.people, bills: [] }));
     setSessionName('');
     setCurrentId(null);
+    log('session', 'Started a new session');
   };
 
   const loadExample = () => {
@@ -244,12 +302,14 @@ export default function App() {
     setState(structuredClone(sampleState));
     setSessionName('Example day out');
     setCurrentId(null);
+    log('session', 'Loaded the example day');
   };
 
   /* ---- Backup / restore (durable, file-based) ---- */
   const exportAllSessions = () => {
     if (history.length === 0) return;
     downloadJSON(`split-bill-sessions-${fileDate()}.json`, buildBackup(history));
+    log('backup', `Backed up ${history.length} session(s)`);
   };
 
   const exportSession = (id: string) => {
@@ -259,6 +319,7 @@ export default function App() {
       `split-bill-${slugify(session.name)}-${fileDate(session.savedAt)}.json`,
       buildBackup([session]),
     );
+    log('backup', `Exported "${session.name}"`);
   };
 
   const importSessionsText = (text: string) => {
@@ -266,6 +327,7 @@ export default function App() {
       const incoming = parseBackup(text);
       const { merged, added, updated } = mergeSessions(history, incoming);
       setHistory(merged);
+      log('backup', `Restored ${incoming.length} session(s)`);
       alert(
         `Restored ${incoming.length} session(s): ${added} new, ${updated} updated.`,
       );
@@ -288,6 +350,7 @@ export default function App() {
       await claim(uname, pin, history);
       setAccount({ username: uname, pin });
       setSyncStatus('synced');
+      log('cloud', `Created account @${uname}`);
       return null;
     } catch (e) {
       setSyncStatus('error');
@@ -305,6 +368,12 @@ export default function App() {
       setHistory(mergeSessions(history, pulled).merged);
       setAccount({ username: uname, pin });
       setSyncStatus('synced');
+      // Bring this account's recent activity onto the device (best-effort: a missing
+      // activity table, before the migration is run, must not fail the login).
+      pullActivity(uname, pin, 500)
+        .then(mergeIn)
+        .catch(() => {});
+      log('cloud', `Logged in as @${uname}`);
       return null;
     } catch (e) {
       setSyncStatus('error');
@@ -315,17 +384,55 @@ export default function App() {
   const cloudSyncNow = () => {
     if (!account) return;
     setSyncStatus('syncing');
-    pull(account.username, account.pin)
-      .then((pulled) => {
+    Promise.all([
+      pull(account.username, account.pin),
+      pullActivity(account.username, account.pin, 500).catch(
+        () => [] as ActivityEvent[],
+      ),
+    ])
+      .then(([pulled, acts]) => {
         setHistory(mergeSessions(history, pulled).merged);
+        mergeIn(acts);
         setSyncStatus('synced');
       })
       .catch(() => setSyncStatus('error'));
   };
 
   const cloudLogout = () => {
+    log('cloud', 'Logged out');
     setAccount(null);
     setSyncStatus('idle');
+  };
+
+  /* ---- Activity archive (download the full kept history as one file) ---- */
+  const downloadActivityArchive = async () => {
+    let server: ActivityEvent[] = [];
+    if (account) {
+      try {
+        // Page back through the server archive, newest first, until a short page.
+        let before: number | undefined;
+        for (let i = 0; i < 200; i++) {
+          const page = await pullActivity(account.username, account.pin, 500, before);
+          server = server.concat(page);
+          if (page.length < 500) break;
+          before = page[page.length - 1].at;
+        }
+      } catch {
+        /* offline / not migrated — fall back to whatever is local */
+      }
+    }
+    const all = mergeEvents(mergeEvents(server, pending), activity);
+    if (all.length === 0) {
+      alert('No activity to archive yet.');
+      return;
+    }
+    downloadJSON(`split-bill-activity-${fileDate()}.json`, {
+      app: 'split-bill-id',
+      kind: 'activity-archive',
+      version: 1,
+      exportedAt: Date.now(),
+      events: all,
+    });
   };
 
   /* ---- Derived totals for the summary hero ---- */
@@ -446,6 +553,15 @@ export default function App() {
           state={state}
           sessionName={sessionName.trim() || undefined}
           savedAt={history.find((s) => s.id === currentId)?.savedAt}
+        />
+        <ActivityPanel
+          events={activity}
+          onClear={() => {
+            if (confirm('Clear the activity list shown here? The archive is kept.')) {
+              clearActivity();
+            }
+          }}
+          onDownloadArchive={downloadActivityArchive}
         />
       </div>
 

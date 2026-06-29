@@ -1,5 +1,6 @@
-import type { SavedSession } from '../types';
+import type { ActivityEvent, SavedSession } from '../types';
 import { buildBackup, parseBackupData } from './backup';
+import { parseEvents, stripForUpload } from './activity';
 
 // Supabase project URL + anon public key. The anon key is safe to ship to the
 // browser — access is gated by the `*_vault` RPCs' server-side PIN check (see the
@@ -100,4 +101,41 @@ export async function push(
     p_pin: pin,
     p_data: buildBackup(sessions),
   });
+}
+
+/**
+ * Append activity events to the durable archive (`activity_events` table). Idempotent —
+ * the RPC upserts by `(username, id)`, so re-sending events already stored is harmless
+ * (and lets coalesced edits update their row). No-ops on an empty list.
+ */
+export async function appendActivity(
+  username: string,
+  pin: string,
+  events: ActivityEvent[],
+): Promise<void> {
+  if (events.length === 0) return;
+  await rpc('append_activity', {
+    p_username: normalizeUsername(username),
+    p_pin: pin,
+    p_events: stripForUpload(events),
+  });
+}
+
+/**
+ * Pull the most recent archived events (newest first). `before` pages further back by
+ * passing the oldest `at` seen so far. Returns `[]` for an empty/fresh archive.
+ */
+export async function pullActivity(
+  username: string,
+  pin: string,
+  limit = 500,
+  before?: number,
+): Promise<ActivityEvent[]> {
+  const data = await rpc('pull_activity', {
+    p_username: normalizeUsername(username),
+    p_pin: pin,
+    p_limit: limit,
+    p_before: before ?? null,
+  });
+  return parseEvents(data);
 }
