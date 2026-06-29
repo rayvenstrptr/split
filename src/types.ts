@@ -44,6 +44,12 @@ export type AppState = {
   bills: Bill[];
 };
 
+/** One entry on the Spin Wheel (the random name picker — independent of bills). */
+export type WheelName = {
+  id: string;
+  label: string; // full name (one line in the editor); truncated only for the wheel
+};
+
 /** A named, saved snapshot of a whole day's split (the history feature). */
 export type SavedSession = {
   id: string;

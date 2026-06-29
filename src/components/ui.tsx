@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { colorFor } from '../lib/colors';
 
@@ -92,6 +93,70 @@ export function Segmented<T extends string>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ---------- ConfirmDialog — styled confirm modal (scrim + card) ---------- */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  destructive = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-4"
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-[340px] rounded-card bg-surface p-5 shadow-hero"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <h3 className="text-base font-extrabold tracking-tight">{title}</h3>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted">{message}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button
+            size="sm"
+            onClick={onConfirm}
+            className={
+              destructive ? 'bg-negative text-white hover:bg-negative' : ''
+            }
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

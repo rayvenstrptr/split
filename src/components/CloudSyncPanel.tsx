@@ -36,13 +36,13 @@ export default function CloudSyncPanel({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  /* ---- Logged-in: compact identity + sync controls ---- */
+  /* ---- Logged-in: identity + sync controls (stacked for the narrow rail) ---- */
   if (account) {
     const s = STATUS[syncStatus];
     return (
-      <section className="rounded-card border border-line bg-surface p-4 shadow-soft">
-        <div className="flex items-center gap-2.5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-extrabold text-accent">
+      <div>
+        <div className="flex items-center gap-2.5 rounded-well bg-accent-soft px-2.5 py-2">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent text-sm font-extrabold text-white">
             {account.username.slice(0, 2).toUpperCase()}
           </span>
           <div className="min-w-0 flex-1">
@@ -53,12 +53,14 @@ export default function CloudSyncPanel({
               {s.label}
             </div>
           </div>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
           <Button
             variant="secondary"
             size="sm"
             onClick={onSyncNow}
             disabled={syncStatus === 'syncing'}
-            className="shrink-0"
+            className="w-full"
             title="Pull the latest sessions from your other devices"
           >
             ↻ Sync now
@@ -67,12 +69,12 @@ export default function CloudSyncPanel({
             variant="ghost"
             size="sm"
             onClick={onLogout}
-            className="shrink-0"
+            className="w-full"
           >
             Log out
           </Button>
         </div>
-      </section>
+      </div>
     );
   }
 
@@ -97,13 +99,10 @@ export default function CloudSyncPanel({
   };
 
   return (
-    <section className="rounded-card border border-line bg-surface p-4 shadow-soft">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-base font-extrabold tracking-tight">
-          Sync across devices
-        </h2>
-        <span className="text-[12.5px] font-semibold text-muted">Optional</span>
-      </div>
+    <div>
+      <p className="mb-2.5 text-[12px] leading-snug text-muted">
+        Optional — sign in to carry your saved days across devices.
+      </p>
 
       <Segmented<'login' | 'create'>
         options={[
@@ -154,6 +153,6 @@ export default function CloudSyncPanel({
           ? 'Logging in pulls your saved sessions onto this device and merges them in.'
           : 'Pick a username and a 4-digit code. There’s no code recovery — remember it.'}
       </p>
-    </section>
+    </div>
   );
 }
