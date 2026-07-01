@@ -33,8 +33,9 @@ export type Bill = {
   entries: BillEntry[]; // only the people who ordered at this stop
   mode: SurchargeMode;
   total?: number; // mode 'fromTotal': actual amount paid
-  servicePercent?: number; // mode 'fromPercent': applied to subtotal first
-  taxPercent?: number; // mode 'fromPercent': applied to (subtotal + service)
+  discount?: number; // integer rupiah — subtracted from the subtotal before service & tax
+  servicePercent?: number; // mode 'fromPercent': applied to (subtotal − discount) first
+  taxPercent?: number; // mode 'fromPercent': applied to (subtotal − discount + service)
   splitMode?: BillSplitMode; // undefined === 'byPerson' (back-compat)
   items?: BillItem[]; // splitMode 'byItem': shared line items
 };

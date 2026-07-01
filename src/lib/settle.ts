@@ -3,12 +3,13 @@ import type { AppState, Bill, BillEntry } from '../types';
 export type BillResult = {
   /** Final amount each participant owes for this bill (integer rupiah). */
   perPerson: Record<string, number>;
-  subtotal: number; // sum of item amounts
+  subtotal: number; // gross sum of order amounts (before discount)
+  discount: number; // discount applied to the subtotal before service & tax
   service: number; // service charge (0 in fromTotal mode)
   tax: number; // restaurant tax (0 in fromTotal mode)
-  surcharge: number; // total - subtotal (service + tax, however composed)
+  surcharge: number; // service + tax portion (relative to the discounted subtotal)
   total: number; // what was actually paid / distributed
-  effectiveSurchargePct: number; // (total/subtotal - 1) * 100
+  effectiveSurchargePct: number; // (total/(subtotal - discount) - 1) * 100
 };
 
 /**
@@ -60,6 +61,11 @@ export function billShares(bill: Bill): BillResult {
   const entries = resolveEntries(bill);
   const subtotal = entries.reduce((s, e) => s + Math.max(0, e.amount), 0);
 
+  // A discount comes off the subtotal *before* service & tax (Indonesian receipt
+  // order: PB1 tax is levied on the post-discount amount). Clamp to [0, subtotal].
+  const discount = Math.min(subtotal, Math.max(0, Math.round(bill.discount ?? 0)));
+  const netSubtotal = subtotal - discount;
+
   let service = 0;
   let tax = 0;
   let total: number;
@@ -67,11 +73,11 @@ export function billShares(bill: Bill): BillResult {
   if (bill.mode === 'fromPercent') {
     const s = (bill.servicePercent ?? 0) / 100;
     const t = (bill.taxPercent ?? 0) / 100;
-    service = Math.round(subtotal * s);
-    tax = Math.round((subtotal + service) * t);
-    total = subtotal + service + tax;
+    service = Math.round(netSubtotal * s);
+    tax = Math.round((netSubtotal + service) * t);
+    total = netSubtotal + service + tax;
   } else {
-    total = Math.round(bill.total ?? subtotal);
+    total = Math.max(0, Math.round(bill.total ?? subtotal) - discount);
   }
 
   const perPerson: Record<string, number> = {};
@@ -103,11 +109,13 @@ export function billShares(bill: Bill): BillResult {
   return {
     perPerson,
     subtotal,
+    discount,
     service,
     tax,
-    surcharge: distributedTotal - subtotal,
+    surcharge: distributedTotal - netSubtotal,
     total: distributedTotal,
-    effectiveSurchargePct: subtotal > 0 ? (distributedTotal / subtotal - 1) * 100 : 0,
+    effectiveSurchargePct:
+      netSubtotal > 0 ? (distributedTotal / netSubtotal - 1) * 100 : 0,
   };
 }
 

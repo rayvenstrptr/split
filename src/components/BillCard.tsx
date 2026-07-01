@@ -35,9 +35,18 @@ export default function BillCard({
   orderControls,
 }: Props) {
   const [open, setOpen] = useState(true);
+  const [showDiscount, setShowDiscount] = useState((bill.discount ?? 0) > 0);
   const result = billShares(bill);
   const isItem = bill.splitMode === 'byItem';
   const payer = people.find((p) => p.id === bill.payerId);
+
+  // The bill footer collapses to a single "Total" line when there's nothing to
+  // itemise — no tax/service and no discount (item #5).
+  const hasSurcharge =
+    bill.mode === 'fromPercent'
+      ? (bill.servicePercent ?? 0) > 0 || (bill.taxPercent ?? 0) > 0
+      : result.surcharge > 0;
+  const hasDiscount = result.discount > 0;
 
   const requestRemove = () => {
     if (
@@ -88,7 +97,7 @@ export default function BillCard({
     if (n === 0) return;
     const base =
       bill.mode === 'fromTotal' && (bill.total ?? 0) > 0
-        ? (bill.total as number)
+        ? result.total // already net of the discount (settle subtracts it)
         : result.subtotal;
     if (base <= 0) return;
     const each = Math.round(base / n);
@@ -278,22 +287,76 @@ export default function BillCard({
                 </div>
               )}
             </div>
+
+            {/* Optional discount (item #4) — applied before service & tax */}
+            {showDiscount || hasDiscount ? (
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <span className="text-sm text-muted">Discount</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-[150px]">
+                    <MoneyInput
+                      value={bill.discount ?? 0}
+                      onChange={(v) => patch({ discount: v })}
+                      ariaLabel="Discount amount"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      patch({ discount: undefined });
+                      setShowDiscount(false);
+                    }}
+                    aria-label="Remove discount"
+                    title="Remove discount"
+                    className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-field text-sm text-faint transition-colors hover:bg-negative-soft hover:text-negative"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowDiscount(true)}
+                className="mt-3 text-[12.5px] font-semibold text-accent transition-colors hover:text-accent-strong"
+              >
+                ＋ Add discount
+              </button>
+            )}
           </div>
 
           {/* Breakdown */}
           <dl className="mt-2.5 flex flex-col gap-0.5 text-[13px]">
-            <Row label="Subtotal" value={formatIDR(result.subtotal)} muted />
-            {bill.mode === 'fromPercent' ? (
-              <>
-                <Row label="Service" value={formatIDR(result.service)} muted />
-                <Row label="Tax" value={formatIDR(result.tax)} muted />
-              </>
+            {!hasSurcharge && !hasDiscount ? (
+              <Row label="Total" value={formatIDR(result.total)} muted />
             ) : (
-              <Row
-                label="Tax + service"
-                value={`${formatIDR(result.surcharge)} · ${result.effectiveSurchargePct.toFixed(1)}%`}
-                muted
-              />
+              <>
+                <Row label="Subtotal" value={formatIDR(result.subtotal)} muted />
+                {hasDiscount && (
+                  <Row label="Discount" value={`− ${formatIDR(result.discount)}`} muted />
+                )}
+                {bill.mode === 'fromPercent' ? (
+                  <>
+                    {result.service > 0 && (
+                      <Row label="Service" value={formatIDR(result.service)} muted />
+                    )}
+                    {result.tax > 0 && (
+                      <Row label="Tax" value={formatIDR(result.tax)} muted />
+                    )}
+                  </>
+                ) : (
+                  result.surcharge > 0 && (
+                    <Row
+                      label="Tax + service"
+                      value={`${formatIDR(result.surcharge)} · ${result.effectiveSurchargePct.toFixed(1)}%`}
+                      muted
+                    />
+                  )
+                )}
+                <div className="mt-1 border-t border-line pt-1">
+                  <Row label="Total" value={formatIDR(result.total)} strong />
+                </div>
+              </>
             )}
           </dl>
 

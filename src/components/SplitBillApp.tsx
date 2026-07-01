@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppState, Bill, Person, SavedSession } from '../types';
 import {
   useLocalStorage,
@@ -22,14 +22,22 @@ import HistoryPanel from './HistoryPanel';
 import PeoplePanel from './PeoplePanel';
 import BillsPanel from './BillsPanel';
 import SettlementPanel from './SettlementPanel';
+import ExportModal from './ExportModal';
 import { Button } from './ui';
-import { billShares, perPersonSummary, directSettlement } from '../lib/settle';
+import {
+  billShares,
+  perPersonSummary,
+  directSettlement,
+  minimizeTransfers,
+  netBalances,
+} from '../lib/settle';
 import { formatIDR } from '../lib/money';
 
 /** The current working `AppState` lives here; the Spin Wheel reads it to import people. */
 export const WORKING_STATE_KEY = 'split-bill-id/v1'; // current working state
 const NAME_KEY = 'split-bill-id/session-name/v1';
 const CURRENT_ID_KEY = 'split-bill-id/session-id/v1';
+const SETTLEMENT_MODE_KEY = 'split-bill-id/settlement-mode/v1';
 
 type Props = {
   onOpenMenu: () => void;
@@ -52,6 +60,11 @@ export default function SplitBillApp({
     CURRENT_ID_KEY,
     null,
   );
+  const [settlementMode, setSettlementMode] = useLocalStorage<'direct' | 'minimize'>(
+    SETTLEMENT_MODE_KEY,
+    'direct',
+  );
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Persist the working state (the undo stacks themselves stay in memory).
   useEffect(() => {
@@ -196,8 +209,8 @@ export default function SplitBillApp({
   };
 
   const newSession = () => {
-    // Keep the same people (you usually go out with the same crew), clear bills.
-    setState((s) => ({ people: s.people, bills: [] }));
+    // Start from a clean slate — no people, no bills.
+    setState({ people: [], bills: [] });
     setSessionName('');
     setCurrentId(null);
   };
@@ -247,7 +260,10 @@ export default function SplitBillApp({
 
   /* ---- Derived totals for the summary hero ---- */
   const summary = perPersonSummary(state);
-  const transfers = directSettlement(state);
+  const transfers =
+    settlementMode === 'minimize'
+      ? minimizeTransfers(netBalances(state))
+      : directSettlement(state);
   const totalSpend = state.bills.reduce(
     (sum, b) => sum + billShares(b).total,
     0,
@@ -295,6 +311,13 @@ export default function SplitBillApp({
             title="Redo (⌘⇧Z)"
           >
             ↷ Redo
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setExportOpen(true)}
+            title="Share & export"
+          >
+            ↗ Share
           </Button>
         </div>
       </header>
@@ -360,8 +383,8 @@ export default function SplitBillApp({
         />
         <SettlementPanel
           state={state}
-          sessionName={sessionName.trim() || undefined}
-          savedAt={history.find((s) => s.id === currentId)?.savedAt}
+          settlementMode={settlementMode}
+          onSettlementModeChange={setSettlementMode}
         />
       </div>
 
@@ -370,6 +393,15 @@ export default function SplitBillApp({
         <br />
         Don&apos;t know the %? Just enter the total paid.
       </footer>
+
+      <ExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        state={state}
+        sessionName={sessionName.trim() || undefined}
+        savedAt={history.find((s) => s.id === currentId)?.savedAt}
+        settlementMode={settlementMode}
+      />
     </div>
   );
 }

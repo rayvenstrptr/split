@@ -3,11 +3,13 @@ import type { AppState } from '../types';
 import {
   billShares,
   directSettlement,
+  minimizeTransfers,
+  netBalances,
   perPersonSummary,
   resolveEntries,
 } from '../lib/settle';
 import { formatIDR } from '../lib/money';
-import { colorFor, personIndex } from '../lib/colors';
+import { personIndex } from '../lib/colors';
 
 /**
  * Print/share sheet for a whole session — the artifact behind the PNG / PDF
@@ -15,22 +17,18 @@ import { colorFor, personIndex } from '../lib/colors';
  * total spent), who-pays-whom, every bill with its full per-person breakdown
  * and tax/service, per-person balances, and a friendly footer.
  *
- * Two looks via `variant`:
- *  - 'color' — brand per-person hues (emerald total, emerald transfers).
- *  - 'mono'  — warm-grey ramp, no black; balances read by sign (owes = darker
- *              grey, gets back = lighter grey).
- *
  * Everything is computed from `state` through the same settle.ts logic the app
  * uses, so the sheet can never disagree with the on-screen numbers.
+ *
+ * The look is a warm-grey monochrome ramp (no black); balances read by sign
+ * (owes = darker grey, gets back = lighter grey).
  */
-
-type Variant = 'color' | 'mono';
 
 type Props = {
   state: AppState;
   sessionName?: string;
   savedAt?: number; // epoch ms
-  variant?: Variant;
+  settlementMode?: 'direct' | 'minimize';
   paper?: 'cream' | 'white';
   showBreakdown?: boolean;
   /** Fixed render width in px. The export captures at this width. */
@@ -44,19 +42,18 @@ export default function ExportSheet({
   state,
   sessionName = 'Untitled session',
   savedAt = Date.now(),
-  variant = 'mono',
+  settlementMode = 'direct',
   paper: paperTone = 'cream',
   showBreakdown = true,
   width = 420,
 }: Props) {
-  const mono = variant === 'mono';
   const paper = paperTone === 'white' ? '#ffffff' : '#fffdf9';
 
-  // Tone-aware palette: brand hues for color, warm greys for monochrome.
-  const ink = mono ? '#67736c' : '#1b2b27';
-  const shareAmt = mono ? '#5f6b64' : '#3a4a45';
-  const totalColor = mono ? '#67736c' : '#0f8a6e';
-  const transferAmt = mono ? '#67736c' : '#0b6b55';
+  // Warm-grey monochrome palette (no black).
+  const ink = '#67736c';
+  const shareAmt = '#5f6b64';
+  const totalColor = '#67736c';
+  const transferAmt = '#67736c';
   const rule = '#cdbfa3';
   const faint = '#a89e85';
   const meta = '#97a19b';
@@ -65,16 +62,18 @@ export default function ExportSheet({
   const monoFont = "'Space Mono', ui-monospace, monospace";
 
   const toneOf = (id: string) =>
-    mono
-      ? MONO_RAMP[personIndex(state.people, id) % MONO_RAMP.length]
-      : colorFor(personIndex(state.people, id)).bg;
+    MONO_RAMP[personIndex(state.people, id) % MONO_RAMP.length];
 
   const view = useMemo(() => {
     const nameById = Object.fromEntries(state.people.map((p) => [p.id, p.name]));
     const signed = (n: number) =>
       (n > 0 ? '+' : n < 0 ? '−' : '') + formatIDR(Math.abs(n));
 
-    const transfers = directSettlement(state).map((t) => ({
+    const rawTransfers =
+      settlementMode === 'minimize'
+        ? minimizeTransfers(netBalances(state))
+        : directSettlement(state);
+    const transfers = rawTransfers.map((t) => ({
       from: nameById[t.from],
       to: nameById[t.to],
       fromTone: toneOf(t.from),
@@ -89,20 +88,29 @@ export default function ExportSheet({
         tone: toneOf(e.personId),
         amount: formatIDR(r.perPerson[e.personId] ?? 0),
       }));
-      const metaRows =
+      const hasSurcharge =
         bill.mode === 'fromPercent'
-          ? [
-              { label: 'Subtotal', value: formatIDR(r.subtotal) },
-              { label: `Service · ${bill.servicePercent ?? 0}%`, value: '+ ' + formatIDR(r.service) },
-              { label: `Tax · ${bill.taxPercent ?? 0}%`, value: '+ ' + formatIDR(r.tax) },
-            ]
-          : [
-              { label: 'Subtotal', value: formatIDR(r.subtotal) },
-              {
-                label: 'Tax + service',
-                value: `+ ${formatIDR(r.surcharge)} · ${r.effectiveSurchargePct.toFixed(1)}%`,
-              },
-            ];
+          ? (bill.servicePercent ?? 0) > 0 || (bill.taxPercent ?? 0) > 0
+          : r.surcharge > 0;
+      const hasDiscount = r.discount > 0;
+      // With neither a surcharge nor a discount the total *is* the subtotal, and
+      // it already prints in the bill's header — skip the redundant breakdown.
+      const metaRows: { label: string; value: string }[] = [];
+      if (hasSurcharge || hasDiscount) {
+        metaRows.push({ label: 'Subtotal', value: formatIDR(r.subtotal) });
+        if (hasDiscount) {
+          metaRows.push({ label: 'Discount', value: '− ' + formatIDR(r.discount) });
+        }
+        if (bill.mode === 'fromPercent') {
+          metaRows.push({ label: `Service · ${bill.servicePercent ?? 0}%`, value: '+ ' + formatIDR(r.service) });
+          metaRows.push({ label: `Tax · ${bill.taxPercent ?? 0}%`, value: '+ ' + formatIDR(r.tax) });
+        } else {
+          metaRows.push({
+            label: 'Tax + service',
+            value: `+ ${formatIDR(r.surcharge)} · ${r.effectiveSurchargePct.toFixed(1)}%`,
+          });
+        }
+      }
       return {
         name: bill.name,
         payer: nameById[bill.payerId],
@@ -121,22 +129,12 @@ export default function ExportSheet({
       spent: formatIDR(s.consumed),
       net: signed(s.net),
       status: s.net > 0 ? 'gets back' : s.net < 0 ? 'owes' : 'settled',
-      netColor: mono
-        ? s.net < 0
-          ? '#67736c'
-          : s.net > 0
-            ? '#aab2ac'
-            : '#828c86'
-        : s.net > 0
-          ? '#0B6B55'
-          : s.net < 0
-            ? '#C4534B'
-            : '#6e7b75',
+      netColor: s.net < 0 ? '#67736c' : s.net > 0 ? '#aab2ac' : '#828c86',
     }));
 
     const totalSpent = state.bills.reduce((sum, b) => sum + billShares(b).total, 0);
     return { transfers, bills, balances, totalSpent: formatIDR(totalSpent) };
-  }, [state, mono]);
+  }, [state, settlementMode]);
 
   const d = new Date(savedAt);
   const dateStr =
@@ -159,7 +157,7 @@ export default function ExportSheet({
         width: size,
         height: size,
         borderRadius: 999,
-        color: mono ? MONO : '#fff',
+        color: MONO,
         fontWeight: 700,
         fontSize: Math.round(size * 0.42),
         background: tone,
@@ -312,7 +310,7 @@ export default function ExportSheet({
               <span key={i} style={{ width: 5, height: 5, borderRadius: 9, background: '#d2c6ab' }} />
             ))}
           </div>
-          <div style={{ fontSize: 12.5, color: mono ? '#67736c' : '#3a4a45', fontWeight: 600, lineHeight: 1.55, padding: '0 8px' }}>
+          <div style={{ fontSize: 12.5, color: '#67736c', fontWeight: 600, lineHeight: 1.55, padding: '0 8px' }}>
             Thanks for a lovely day out. Settle up, then do it all again soon.
           </div>
           <div style={{ fontFamily: monoFont, fontSize: 10, color: faint, marginTop: 11, letterSpacing: '.10em' }}>

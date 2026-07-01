@@ -1,151 +1,62 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import type { AppState } from '../types';
-import { directSettlement, netBalances, perPersonSummary } from '../lib/settle';
+import {
+  directSettlement,
+  minimizeTransfers,
+  netBalances,
+  perPersonSummary,
+} from '../lib/settle';
 import { formatIDR } from '../lib/money';
 import { personIndex } from '../lib/colors';
-import { Avatar, Button, Segmented, SectionHead } from './ui';
-import ExportSheet from './ExportSheet';
+import { Avatar, Segmented, SectionHead } from './ui';
+
+type SettlementMode = 'direct' | 'minimize';
 
 type Props = {
   state: AppState;
-  /** Name of the session being viewed/exported (for the export sheet header). */
-  sessionName?: string;
-  /** Epoch ms the session was saved (defaults to now). */
-  savedAt?: number;
+  settlementMode: SettlementMode;
+  onSettlementModeChange: (mode: SettlementMode) => void;
 };
 
-export default function SettlementPanel({ state, sessionName, savedAt }: Props) {
-  const [copied, setCopied] = useState(false);
-  const [exporting, setExporting] = useState<null | 'png' | 'pdf'>(null);
-  const [exportStyle, setExportStyle] = useState<'mono' | 'color'>('mono');
-  // The hidden, fixed-width node the PNG/PDF are captured from.
-  const sheetRef = useRef<HTMLDivElement>(null);
-
-  const { summary, transfers, byPayer, nameById, balanced } = useMemo(() => {
+export default function SettlementPanel({
+  state,
+  settlementMode,
+  onSettlementModeChange,
+}: Props) {
+  const { summary, transfers, nameById, balanced } = useMemo(() => {
     const summary = perPersonSummary(state);
     const net = netBalances(state);
-    const transfers = directSettlement(state);
+    const transfers =
+      settlementMode === 'minimize'
+        ? minimizeTransfers(net)
+        : directSettlement(state);
     const nameById = Object.fromEntries(state.people.map((p) => [p.id, p.name]));
-    const byPayer = new Map<string, typeof transfers>();
-    for (const t of transfers) {
-      const list = byPayer.get(t.from) ?? [];
-      list.push(t);
-      byPayer.set(t.from, list);
-    }
     const balanced = Math.abs(Object.values(net).reduce((s, v) => s + v, 0)) < 1;
-    return { summary, transfers, byPayer, nameById, balanced };
-  }, [state]);
-
-  const copySummary = async () => {
-    const lines: string[] = ['*Split Bill — who pays whom*', ''];
-    for (const s of summary) {
-      const outgoing = byPayer.get(s.id) ?? [];
-      if (outgoing.length > 0) {
-        lines.push(`*${nameById[s.id]}* pays:`);
-        for (const t of outgoing) lines.push(`   → ${nameById[t.to]}: ${formatIDR(t.amount)}`);
-      } else if (s.net > 0) {
-        lines.push(`*${nameById[s.id]}*: owed ${formatIDR(s.net)} · nothing to pay`);
-      } else {
-        lines.push(`*${nameById[s.id]}*: settled up`);
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  const renderPng = async () => {
-    const node = sheetRef.current;
-    if (!node) return null;
-    const { toPng } = await import('html-to-image');
-    // The node already carries its 24px cream frame (see below), so the torn
-    // edge + card shadow have room and nothing is clipped. Capture it at its
-    // full measured size — don't inflate the clone with a padding style, which
-    // would push content past the canvas edge and slice the right side off.
-    return toPng(node, { pixelRatio: 2 });
-  };
-
-  const fileBase = () => {
-    const slug = (sessionName ?? 'split-bill')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    return `${slug || 'split-bill'}-${new Date(savedAt ?? Date.now()).toISOString().slice(0, 10)}`;
-  };
-
-  const exportPng = async () => {
-    setExporting('png');
-    try {
-      const dataUrl = await renderPng();
-      if (!dataUrl) return;
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `${fileBase()}.png`;
-      a.click();
-    } finally {
-      setExporting(null);
-    }
-  };
-
-  const exportPdf = async () => {
-    setExporting('pdf');
-    try {
-      const dataUrl = await renderPng();
-      if (!dataUrl) return;
-      const img = new Image();
-      img.src = dataUrl;
-      await img.decode();
-      const { default: jsPDF } = await import('jspdf');
-      const pdf = new jsPDF({
-        orientation: img.width >= img.height ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [img.width, img.height],
-      });
-      pdf.addImage(dataUrl, 'PNG', 0, 0, img.width, img.height);
-      pdf.save(`${fileBase()}.pdf`);
-    } finally {
-      setExporting(null);
-    }
-  };
-
-  const busy = exporting !== null;
+    return { summary, transfers, nameById, balanced };
+  }, [state, settlementMode]);
 
   return (
     <section>
-      <SectionHead
-        title="Who pays whom"
-        right={
-          <div className="flex items-center gap-1.5">
-            <Button variant="secondary" size="sm" onClick={copySummary} disabled={busy}>
-              {copied ? 'Copied!' : 'Copy'}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={exportPng} disabled={busy}>
-              {exporting === 'png' ? '…' : 'PNG'}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={exportPdf} disabled={busy}>
-              {exporting === 'pdf' ? '…' : 'PDF'}
-            </Button>
-          </div>
-        }
-      />
+      <SectionHead title="Who pays whom" />
 
-      {/* Export look toggle */}
-      <div className="mb-3 max-w-[220px]">
-        <Segmented<'mono' | 'color'>
-          value={exportStyle}
-          onChange={setExportStyle}
+      {/* Settlement style toggle */}
+      <div className="mb-3">
+        <Segmented<SettlementMode>
+          value={settlementMode}
+          onChange={onSettlementModeChange}
           options={[
-            { label: 'Monochrome', value: 'mono' },
-            { label: 'Color', value: 'color' },
+            { label: 'Direct', value: 'direct' },
+            { label: 'Simplified', value: 'minimize' },
           ]}
         />
+        <p className="mx-0.5 mt-1.5 text-xs text-muted">
+          {settlementMode === 'direct'
+            ? 'Direct — everyone repays whoever actually fronted for them.'
+            : 'Simplified — the fewest transfers that still settle everyone.'}
+        </p>
       </div>
 
-      {/* On-screen quick summary (unchanged) */}
+      {/* On-screen quick summary */}
       <div className="flex flex-col gap-2">
         {transfers.length === 0 && (
           <div className="rounded-card border border-line bg-surface p-5 text-center text-muted">
@@ -193,24 +104,6 @@ export default function SettlementPanel({ state, sessionName, savedAt }: Props) 
       <p className="mx-0.5 mt-2.5 text-xs text-muted">
         {balanced ? 'Balances check out — paid and shares net to zero.' : 'Heads up: balances do not net to zero.'}
       </p>
-
-      {/* Off-screen export artifact — captured by PNG / PDF, never shown.
-          The 24px cream frame is part of the captured node (inline-block so it
-          shrink-wraps to the sheet width) so html-to-image measures the full
-          padded size and nothing clips on the right. */}
-      <div aria-hidden style={{ position: 'fixed', left: -100000, top: 0, pointerEvents: 'none' }}>
-        <div
-          ref={sheetRef}
-          style={{ display: 'inline-block', padding: 24, background: '#f4f0e8' }}
-        >
-          <ExportSheet
-            state={state}
-            sessionName={sessionName ?? 'Untitled session'}
-            savedAt={savedAt}
-            variant={exportStyle}
-          />
-        </div>
-      </div>
     </section>
   );
 }

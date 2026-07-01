@@ -62,6 +62,64 @@ describe('billShares — percent mode uses Indonesian compounding order', () => 
   });
 });
 
+describe('billShares — discount applies before service & tax (Indonesian order)', () => {
+  it('fromPercent: service & tax are charged on the post-discount subtotal', () => {
+    const r = billShares(
+      bill({
+        payerId: 'R',
+        mode: 'fromPercent',
+        servicePercent: 5,
+        taxPercent: 10,
+        discount: 100_000,
+        entries: [
+          { personId: 'R', amount: 300_000 },
+          { personId: 'G', amount: 200_000 },
+        ],
+      }),
+    );
+    expect(r.subtotal).toBe(500_000);
+    expect(r.discount).toBe(100_000);
+    expect(r.service).toBe(20_000); // 5% of 400k (post-discount)
+    expect(r.tax).toBe(42_000); // 10% of 420k, not of 500k/525k
+    expect(r.total).toBe(462_000);
+    expect(r.surcharge).toBe(62_000); // relative to the 400k net subtotal
+    const sum = Object.values(r.perPerson).reduce((s, v) => s + v, 0);
+    expect(sum).toBe(r.total);
+  });
+
+  it('fromTotal: the discount comes straight off the entered total', () => {
+    const r = billShares(
+      bill({
+        payerId: 'A',
+        total: 600_000,
+        discount: 50_000,
+        entries: [
+          { personId: 'A', amount: 300_000 },
+          { personId: 'B', amount: 200_000 },
+        ],
+      }),
+    );
+    expect(r.total).toBe(550_000);
+    const sum = Object.values(r.perPerson).reduce((s, v) => s + v, 0);
+    expect(sum).toBe(550_000);
+  });
+
+  it('a discount larger than the subtotal is clamped (never goes negative)', () => {
+    const r = billShares(
+      bill({
+        payerId: 'A',
+        mode: 'fromPercent',
+        servicePercent: 5,
+        taxPercent: 10,
+        discount: 999_999,
+        entries: [{ personId: 'A', amount: 100_000 }],
+      }),
+    );
+    expect(r.discount).toBe(100_000);
+    expect(r.total).toBe(0);
+  });
+});
+
 describe('billShares — rounding always reconciles to the total', () => {
   it('never loses or invents rupiah on awkward splits', () => {
     const r = billShares(

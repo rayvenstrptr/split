@@ -34,6 +34,7 @@ export default function HistoryPanel({
   onImportText,
 }: Props) {
   const [flash, setFlash] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [collapsed, setCollapsed] = useLocalStorage(
     'split-bill-id/sessions-collapsed/v1',
     false,
@@ -57,6 +58,9 @@ export default function HistoryPanel({
   };
 
   const sorted = [...history].sort((a, b) => b.savedAt - a.savedAt);
+  // Keep the list compact: show the 3 most recent, expand for the rest.
+  const visible = showAll ? sorted : sorted.slice(0, 3);
+  const hidden = sorted.length - visible.length;
 
   return (
     <section className="rounded-card border border-line bg-surface p-4 shadow-soft">
@@ -104,7 +108,7 @@ export default function HistoryPanel({
 
           {sorted.length > 0 && (
             <ul className="mt-3.5 flex flex-col gap-1.5">
-              {sorted.map((s) => {
+              {visible.map((s) => {
                 const active = s.id === currentId;
                 return (
                   <li
@@ -163,6 +167,16 @@ export default function HistoryPanel({
                 );
               })}
             </ul>
+          )}
+
+          {sorted.length > 3 && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="mt-2 w-full text-center text-[12.5px] font-semibold text-accent transition-colors hover:text-accent-strong"
+            >
+              {showAll ? 'Show fewer' : `Show ${hidden} older`}
+            </button>
           )}
 
           <div className="mt-3.5 flex gap-2">
